@@ -1,127 +1,77 @@
 import os
-from dotenv import load_dotenv
 from playwright.sync_api import sync_playwright
 from supabase import Client, create_client
 
-# .env dosyasını yükle (Lokal ortamda .env'yi okur, GitHub Actions'ta Secrets kullanır)
-load_dotenv()
+# Bilgisayarında çalışırken .env okur, GitHub sunucusunda ise hata vermeden geçer
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "https://qgdpkjkdlicqltagcsgq.supabase.co")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY", "sb_publishable_APY9Yn4FsZL4IxGIR9ndzg_-1Xaz_-y")
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-def ilan_gov_tr_cek():
+def iskur_ilanlari_cek():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
         
-        print("Basın İlan Kurumu (ilan.gov.tr) ana sayfasına gidiliyor...")
-        kategoriler = []
+        print("İŞKUR kamu işçi ilanları taranıyor...")
+        unique_ilanlar = {}
         
         try:
-            # 1. ADIM: Ana kategoriye gidip sol menüden güncel alt kategori linklerini topluyoruz
-            print("Sol menüdeki güncel kategori linkleri keşfediliyor...")
-            page.goto("https://www.ilan.gov.tr/ilan/kategori/8/kamu-akademik-personel", timeout=60000, wait_until="domcontentloaded")
+            # İŞKUR esube kamu ilanları arama sayfası
+            url = "https://esube.iskur.gov.tr/OzelIstihdam/KamuIlanIsSorgu.aspx"
+            page.goto(url, timeout=60000, wait_until="domcontentloaded")
             page.wait_for_timeout(3000)
             
-            # Sayfadaki kategori menü linklerini bul
-            link_elementleri = page.locator('a[href*="/ilan/kategori/"]').all()
+            # İlan tablosundaki satırları tara
+            satirlar = page.locator("table#dgKamuIlanlari tr").all()
             
-            for el in link_elementleri:
-                href = el.get_attribute("href")
-                metin = el.inner_text().strip()
-                
-                if not href: continue
-                tam_url = href if href.startswith("http") else f"https://www.ilan.gov.tr{href}"
-                
-                # Menüdeki isimlere göre doğru URL'leri çek
-                if "Kamu Personel Alım" in metin and not any(k['isim'] == 'Kamu Personeli' for k in kategoriler):
-                    kategoriler.append({"isim": "Kamu Personeli", "url": tam_url})
-                elif "Akademik Personel Alım" in metin and not any(k['isim'] == 'Akademik Personel' for k in kategoriler):
-                    kategoriler.append({"isim": "Akademik Personel", "url": tam_url})
-                elif "Askeri Personel Alım" in metin and not any(k['isim'] == 'Askeri Personel' for k in kategoriler):
-                    kategoriler.append({"isim": "Askeri Personel", "url": tam_url})
+            for satir in satirlar[1:]: # Başlık satırını atla
+                try:
+                    sutunlar = satir.locator("td").all()
+                    if len(sutunlar) < 4:
+                        continue
+                    
+                    ilan_no = sutunlar[0].inner_text().strip()
+                    kurum_adi = sutunlar[1].inner_text().strip()
+                    meslek = sutunlar[2].inner_text().strip()
+                    sehir = sutunlar[3].inner_text().strip()
+                    
+                    link_elem = sutunlar[0].locator("a").first
+                    href = link_elem.get_attribute("href") if link_elem.count() > 0 else ""
+                    tam_link = href if href.startswith("http") else f"https://esube.iskur.gov.tr/OzelIstihdam/{href}" if href else url
 
-            # Eğer menüden okuyamazsa bildiğimiz sağlam ID'leri (44 ve 73) yedek olarak ekle
-            if not any(k['isim'] == 'Kamu Personeli' for k in kategoriler):
-                kategoriler.append({"isim": "Kamu Personeli", "url": "https://www.ilan.gov.tr/ilan/kategori/44/kamu-personel-alim-ve-sinavlari"})
-            if not any(k['isim'] == 'Akademik Personel' for k in kategoriler):
-                kategoriler.append({"isim": "Akademik Personel", "url": "https://www.ilan.gov.tr/ilan/kategori/73/akademik-personel-alimlari"})
-
-            print(f"Bulunan Kategoriler: {[k['isim'] for k in kategoriler]}")
-            
-            unique_ilanlar = {}
-            
-            # 2. ADIM: Keşfedilen doğru linkleri sayfa sayfa gez
-            for kategori in kategoriler:
-                print(f"\n[{kategori['isim']}] taranıyor... ({kategori['url']})")
-                page.goto(kategori['url'], timeout=60000, wait_until="domcontentloaded")
-                
-                sayfa_no = 1
-                
-                while True:
-                    print(f"  -> Sayfa {sayfa_no} okunuyor...")
-                    page.wait_for_timeout(4000) 
-                    
-                    links = page.locator('a[href*="/ilan/"]').all()
-                    
-                    for link in links:
-                        href = link.get_attribute("href")
-                        if not href or "kategori" in href or "sayfa" in href or "currentPage" in href:
-                            continue
-                        
-                        baslik = link.inner_text().strip()
-                        if len(baslik) < 15:
-                            continue
-                        
-                        tam_link = href if href.startswith("http") else f"https://www.ilan.gov.tr{href}"
-                        
-                        try:
-                            ilan_id = tam_link.split("/ilan/")[1].split("/")[0]
-                        except:
-                            ilan_id = tam_link.split("/")[-1][:50]
-                        
-                        if ilan_id not in unique_ilanlar:
-                            unique_ilanlar[ilan_id] = {
-                                "kaynak_sistem": "ILAN_GOV_TR",
-                                "orijinal_ilan_id": ilan_id,
-                                "baslik": baslik.replace('\n', ' '),
-                                "kurum_adi": "Basın İlan Kurumu",
-                                "ilan_turu": kategori['isim'], 
-                                "sehir": "Türkiye Geneli",
-                                "basvuru_linki": tam_link
-                            }
-                    
-                    # Sonraki sayfaya geç
-                    try:
-                        sonraki_buton = page.locator("a:has-text('Sonraki')").first
-                        if sonraki_buton.is_visible():
-                            sonraki_buton.click()
-                            sayfa_no += 1
-                            page.wait_for_load_state("domcontentloaded")
-                        else:
-                            print(f"  [{kategori['isim']}] için son sayfaya ulaşıldı.")
-                            break
-                    except Exception as e:
-                        print(f"  [{kategori['isim']}] için sayfalama bitti.")
-                        break
+                    if ilan_no and ilan_no not in unique_ilanlar:
+                        unique_ilanlar[ilan_no] = {
+                            "kaynak_sistem": "ISKUR",
+                            "orijinal_ilan_id": f"iskur_{ilan_no}",
+                            "baslik": meslek,
+                            "kurum_adi": kurum_adi,
+                            "ilan_turu": "İŞKUR İşçi",
+                            "sehir": sehir if sehir else "Türkiye Geneli",
+                            "basvuru_linki": tam_link
+                        }
+                except Exception as ex:
+                    continue
 
             ilanlar = list(unique_ilanlar.values())
-            print(f"\n====== TARAMA BİTTİ ======")
-            print(f"Toplam {len(ilanlar)} adet (Kamu, Akademik ve Askeri) ilan başarıyla çıkarıldı.")
-            print("Supabase'e yazılıyor...")
+            print(f"Toplam {len(ilanlar)} adet İŞKUR ilanı çekildi. Supabase'e işleniyor...")
             
             if ilanlar:
                 supabase.table("tum_kamu_ilanlari").upsert(ilanlar, on_conflict="kaynak_sistem,orijinal_ilan_id").execute()
-                print("Tüm ilanlar başarıyla veritabanına kaydedildi!")
+                print("İŞKUR ilanları başarıyla veritabanına kaydedildi!")
             else:
-                print("Hiç ilan bulunamadı.")
+                print("İŞKUR ilanı bulunamadı.")
                 
         except Exception as e:
-            print(f"Hata oluştu: {e}")
+            print(f"İŞKUR bot hatası: {e}")
         finally:
             browser.close()
 
 if __name__ == "__main__":
-    ilan_gov_tr_cek()
+    iskur_ilanlari_cek()

@@ -1,0 +1,419 @@
+<!DOCTYPE html>
+<html lang="tr" class="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kamu İlanları Merkezi</title>
+    
+    <!-- PWA ve Mobil Cihaz Tanımlamaları -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#1e293b">
+    
+    <!-- iOS (iPhone) Özel Etiketleri -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Kamu İlanları">
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/3281/3281289.png">
+
+    <!-- Tailwind CSS Yapılandırması -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {}
+            }
+        }
+    </script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body class="bg-gray-50 dark:bg-slate-900 font-sans text-gray-800 dark:text-gray-200 transition-colors duration-300 selection:bg-blue-200">
+    
+    <!-- Üst Başlık (Hero Section) -->
+    <div class="bg-gradient-to-r from-slate-900 to-slate-800 dark:from-slate-950 dark:to-slate-900 pb-24 pt-10 px-6 shadow-lg relative">
+        <!-- Karanlık Mod Butonu -->
+        <button id="darkModeToggle" class="absolute top-6 right-6 text-white bg-white/10 hover:bg-white/20 p-3 rounded-full backdrop-blur-sm transition-all shadow-md z-10">
+            <i class="fas fa-moon text-xl hidden dark:inline-block text-yellow-300"></i>
+            <i class="fas fa-sun text-xl inline-block dark:hidden text-yellow-400"></i>
+        </button>
+
+        <div class="max-w-7xl mx-auto text-center mt-4">
+            <h1 class="text-4xl md:text-5xl font-extrabold text-white mb-4 tracking-tight">Kamu İlanları Merkezi</h1>
+            <p class="text-slate-300 text-lg md:text-xl max-w-2xl mx-auto">Türkiye genelindeki güncel kurum ve personel alım ilanları tek bir platformda.</p>
+        </div>
+    </div>
+
+    <!-- Ana İçerik -->
+    <div class="max-w-7xl mx-auto px-6 -mt-12">
+        
+        <!-- Arama, Filtreleme ve Sıralama Alanı -->
+        <div class="bg-white dark:bg-slate-800 rounded-xl shadow-md p-6 mb-10 border border-gray-100 dark:border-slate-700 space-y-4">
+            <div class="flex flex-col md:flex-row gap-4">
+                <div class="relative flex-1">
+                    <i class="fas fa-search absolute left-4 top-4 text-gray-400"></i>
+                    <input type="text" id="aramaKutusu" placeholder="Pozisyon, kurum veya şehir ara..." class="w-full pl-11 pr-4 py-3 rounded-lg bg-gray-50 dark:bg-slate-900 dark:text-white border border-gray-200 dark:border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all text-sm font-medium">
+                </div>
+                
+                <!-- Sıralama Seçeneği -->
+                <select id="siralamaTipi" class="px-4 py-3 rounded-lg bg-gray-50 dark:bg-slate-900 border border-gray-200 dark:border-slate-700 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 font-medium text-sm transition-all cursor-pointer">
+                    <option value="yeni">En Yeni Eklenenler</option>
+                    <option value="yaklasan">Son Başvurusu Yaklaşanlar</option>
+                </select>
+            </div>
+            
+            <!-- Kategori Butonları -->
+            <div class="flex flex-wrap gap-2 pt-2" id="kategoriButonlari">
+                <button class="kat-btn px-4 py-2 rounded-lg text-sm font-semibold transition-all bg-blue-600 text-white shadow-md" data-kat="Tümü">Tümü</button>
+                <button class="kat-btn px-4 py-2 rounded-lg text-sm font-semibold transition-all bg-white dark:bg-slate-700 text-gray-600 dark:text-gray-300 border dark:border-slate-600 hover:bg-gray-50 dark:hover:bg-slate-600" data-kat="İŞKUR">İŞKUR İşçi</button>
+                <button class="kat-btn px-4 py-2 rounded-lg text-sm font-semibold transition-all bg-white dark:bg-slate-700 text-gray-600 dark:text-gray-300 border dark:border-slate-600 hover:bg-gray-50 dark:hover:bg-slate-600" data-kat="Kamu Personeli">Kamu Personeli</button>
+                <button class="kat-btn px-4 py-2 rounded-lg text-sm font-semibold transition-all bg-white dark:bg-slate-700 text-gray-600 dark:text-gray-300 border dark:border-slate-600 hover:bg-gray-50 dark:hover:bg-slate-600" data-kat="Akademik Personel">Akademik</button>
+                <button class="kat-btn px-4 py-2 rounded-lg text-sm font-semibold transition-all bg-white dark:bg-slate-700 text-gray-600 dark:text-gray-300 border dark:border-slate-600 hover:bg-gray-50 dark:hover:bg-slate-600" data-kat="Askeri Personel">Askeri</button>
+                <button class="kat-btn px-4 py-2 rounded-lg text-sm font-semibold transition-all bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-100 dark:bg-rose-900/30 dark:border-rose-800 dark:text-rose-400" data-kat="Favoriler"><i class="fas fa-heart mr-1"></i> Kaydettiklerim</button>
+            </div>
+        </div>
+
+        <!-- Durumlar -->
+        <div id="yukleniyor-durumu" class="flex flex-col items-center justify-center py-20">
+            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mb-4"></div>
+            <p class="text-gray-500 dark:text-gray-400 font-medium">Güncel ilanlar yükleniyor...</p>
+        </div>
+        <div id="hata-durumu" class="hidden py-10 text-center">
+            <p id="hata-mesaji" class="text-red-600 font-medium"></p>
+        </div>
+
+        <!-- İlan Grid Yapısı -->
+        <div id="ilan-listesi" class="grid gap-6 md:grid-cols-2 lg:grid-cols-3 pb-6 relative">
+            <!-- Kartlar Buraya Gelecek -->
+        </div>
+
+        <!-- Sayfalama -->
+        <div id="sayfalama-alani" class="pb-10 flex justify-center items-center gap-4 hidden">
+            <button id="btn-onceki" class="px-5 py-2 rounded-lg bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-300 font-semibold hover:bg-gray-50 dark:hover:bg-slate-700 disabled:opacity-50 transition-all">
+                <i class="fas fa-chevron-left mr-1"></i> Önceki
+            </button>
+            <span id="sayfa-bilgisi" class="text-sm font-bold text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-slate-800 px-4 py-2 rounded-lg">1 / 1</span>
+            <button id="btn-sonraki" class="px-5 py-2 rounded-lg bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-300 font-semibold hover:bg-gray-50 dark:hover:bg-slate-700 disabled:opacity-50 transition-all">
+                Sonraki <i class="fas fa-chevron-right ml-1"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- E-Posta Bülteni Alanı -->
+    <div class="bg-white dark:bg-slate-900 border-t border-gray-200 dark:border-slate-800 mt-10 py-16">
+        <div class="max-w-4xl mx-auto px-6 text-center">
+            <div class="inline-flex items-center justify-center w-16 h-16 rounded-full bg-blue-100 dark:bg-blue-900/50 mb-6">
+                <i class="fas fa-paper-plane text-blue-600 dark:text-blue-400 text-2xl"></i>
+            </div>
+            <h2 class="text-2xl md:text-3xl font-bold mb-4 dark:text-white">Şehrinizdeki İlanları Kaçırmayın</h2>
+            <p class="text-gray-600 dark:text-gray-400 mb-8">Yeni kamu ilanları açıldığında e-posta kutunuza bildirim gönderelim.</p>
+            
+            <form id="bultenFormu" class="flex flex-col sm:flex-row gap-3 justify-center max-w-lg mx-auto">
+                <input type="email" id="bultenEmail" required placeholder="E-posta adresiniz..." class="flex-1 px-5 py-3 rounded-xl border border-gray-200 dark:border-slate-700 dark:bg-slate-800 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500">
+                <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-xl transition-all shadow-md">Bana Haber Ver</button>
+            </form>
+            <p id="bultenMesaj" class="mt-4 text-sm font-semibold hidden"></p>
+        </div>
+    </div>
+
+    <!-- PWA Kurulum Yönlendirmesi (Soft Prompt) -->
+    <div id="pwa-kurulum-kutusu" class="fixed bottom-0 left-0 right-0 p-4 z-50 transform translate-y-full transition-transform duration-500 ease-in-out">
+        <div class="max-w-md mx-auto bg-white dark:bg-slate-800 rounded-2xl shadow-2xl border border-gray-200 dark:border-slate-700 p-5 flex flex-col gap-4">
+            <div class="flex items-start gap-4">
+                <img src="https://cdn-icons-png.flaticon.com/512/3281/3281289.png" alt="Logo" class="w-14 h-14 rounded-xl shadow-sm">
+                <div>
+                    <h4 class="font-bold text-gray-900 dark:text-white text-lg">Kamu İlanları Uygulaması</h4>
+                    <p class="text-sm text-gray-600 dark:text-gray-400 mt-1">Anlık bildirim almak ve hızlı erişmek için uygulamamızı cihazınıza kurun.</p>
+                </div>
+            </div>
+
+            <!-- iOS (iPhone) İçin Özel Rehber Mesajı -->
+            <div id="ios-rehber" class="hidden bg-blue-50 dark:bg-blue-900/30 p-3 rounded-lg text-sm text-blue-800 dark:text-blue-300 font-medium text-center">
+                Kurmak için alttaki <i class="fas fa-share-square mx-1 text-xl"></i> <b>Paylaş</b> butonuna dokunun ve <br> <b>"Ana Ekrana Ekle"</b> seçeneğini seçin.
+            </div>
+
+            <div class="flex gap-3 mt-2">
+                <button id="btn-kapat-pwa" class="flex-1 px-4 py-2 rounded-xl bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-gray-300 font-semibold hover:bg-gray-200 transition-colors">Belki Sonra</button>
+                <button id="btn-kur-pwa" class="flex-1 px-4 py-2 rounded-xl bg-blue-600 text-white font-bold hover:bg-blue-700 shadow-md transition-colors hidden">Hemen Kur</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- JAVASCRIPT BÖLÜMÜ -->
+    <script>
+        // --- 1. KARANLIK MOD KONTROLÜ ---
+        const darkModeBtn = document.getElementById('darkModeToggle');
+        const html = document.documentElement;
+        if (localStorage.theme === 'dark' || (!('theme' in localStorage) && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+            html.classList.add('dark');
+        }
+        darkModeBtn.addEventListener('click', () => {
+            html.classList.toggle('dark');
+            localStorage.theme = html.classList.contains('dark') ? 'dark' : 'light';
+        });
+
+        // --- 2. SUPABASE BAĞLANTISI VE UYGULAMA MANTIĞI ---
+        const SUPABASE_URL = "https://qgdpkjkdlicqltagcsgq.supabase.co";
+        const SUPABASE_KEY = "sb_publishable_APY9Yn4FsZL4IxGIR9ndzg_-1Xaz_-y";
+        const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        const ilanListesi = document.getElementById('ilan-listesi');
+        const sayfalamaAlani = document.getElementById('sayfalama-alani');
+        
+        let tumIlanlar = [];
+        let filtrelenmisIlanlar = [];
+        let aktifKategori = "Tümü";
+        let aramaMetni = "";
+        let aktifSiralama = "yeni";
+        let favoriler = JSON.parse(localStorage.getItem('kamu_favoriler')) || [];
+        
+        let mevcutSayfa = 1;
+        const sayfaBasinaIlan = 12;
+
+        async function ilanlariGetir() {
+            try {
+                const { data, error } = await db.from('tum_kamu_ilanlari').select('*').order('olusturulma_tarihi', { ascending: false });
+                if (error) throw error;
+                tumIlanlar = data || []; 
+                document.getElementById('yukleniyor-durumu').classList.add('hidden');
+                listeyiGuncelle();
+            } catch (error) {
+                document.getElementById('yukleniyor-durumu').classList.add('hidden');
+                document.getElementById('hata-durumu').classList.remove('hidden');
+                document.getElementById('hata-mesaji').innerText = "Hata: " + error.message;
+            }
+        }
+
+        function listeyiGuncelle() {
+            filtrelenmisIlanlar = tumIlanlar.filter(ilan => {
+                let kategoriUyuyor = true;
+                if (aktifKategori === "Favoriler") {
+                    kategoriUyuyor = favoriler.includes(ilan.orijinal_ilan_id);
+                } else if (aktifKategori !== "Tümü") {
+                    if (aktifKategori === "İŞKUR") kategoriUyuyor = ilan.kaynak_sistem === "ISKUR";
+                    else kategoriUyuyor = ilan.ilan_turu === aktifKategori;
+                }
+                
+                const ara = aramaMetni.toLowerCase();
+                const metinUyuyor = (ilan.baslik && ilan.baslik.toLowerCase().includes(ara)) || (ilan.kurum_adi && ilan.kurum_adi.toLowerCase().includes(ara)) || (ilan.sehir && ilan.sehir.toLowerCase().includes(ara));
+                return kategoriUyuyor && metinUyuyor;
+            });
+
+            if (aktifSiralama === "yaklasan") {
+                filtrelenmisIlanlar.sort((a, b) => {
+                    if (!a.son_basvuru_tarihi) return 1;
+                    if (!b.son_basvuru_tarihi) return -1;
+                    return new Date(a.son_basvuru_tarihi) - new Date(b.son_basvuru_tarihi);
+                });
+            } else {
+                filtrelenmisIlanlar.sort((a, b) => new Date(b.olusturulma_tarihi || 0) - new Date(a.olusturulma_tarihi || 0));
+            }
+
+            mevcutSayfa = 1; 
+            sayfayiCiz();
+        }
+
+        function sayfayiCiz() {
+            ilanListesi.innerHTML = ""; 
+            const toplamSayfa = Math.ceil(filtrelenmisIlanlar.length / sayfaBasinaIlan);
+
+            if (filtrelenmisIlanlar.length === 0) {
+                ilanListesi.innerHTML = `<p class="col-span-full text-center text-gray-500 py-10 border border-dashed border-gray-300 dark:border-slate-700 rounded-xl">Aradığınız kriterlere uygun ilan bulunamadı.</p>`;
+                sayfalamaAlani.classList.add('hidden');
+                return;
+            }
+
+            const baslangic = (mevcutSayfa - 1) * sayfaBasinaIlan;
+            const ekrandakiIlanlar = filtrelenmisIlanlar.slice(baslangic, baslangic + sayfaBasinaIlan);
+
+            ekrandakiIlanlar.forEach(ilan => {
+                const isFav = favoriler.includes(ilan.orijinal_ilan_id);
+                const favIkon = isFav ? 'fas fa-heart text-red-500' : 'far fa-heart text-gray-400 dark:text-gray-500';
+                
+                let acilHTML = '';
+                let formatliTarih = 'Belirtilmemiş';
+                if (ilan.son_basvuru_tarihi) {
+                    formatliTarih = ilan.son_basvuru_tarihi.split('-').reverse().join('.');
+                    const gunFarki = Math.ceil((new Date(ilan.son_basvuru_tarihi) - new Date()) / (1000 * 60 * 60 * 24));
+                    
+                    if (gunFarki >= 0 && gunFarki <= 3) {
+                        acilHTML = `
+                        <span class="absolute -top-3 -right-3 flex h-7 w-7 z-10" title="Son ${gunFarki} Gün!">
+                            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                            <span class="relative inline-flex rounded-full h-7 w-7 bg-red-600 items-center justify-center text-white text-xs font-bold"><i class="fas fa-bell"></i></span>
+                        </span>`;
+                    }
+                }
+
+                const kaynakRenk = ilan.kaynak_sistem === 'ISKUR' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400';
+                const etiketTuru = ilan.ilan_turu || ilan.kaynak_sistem || 'KAMU';
+                
+                const paylasMetni = encodeURIComponent(ilan.baslik + " - İlanı İncele: " + (ilan.basvuru_linki || ''));
+                const wpLink = `https://api.whatsapp.com/send?text=${paylasMetni}`;
+                const tgLink = `https://t.me/share/url?url=${encodeURIComponent(ilan.basvuru_linki || '')}&text=${encodeURIComponent(ilan.baslik)}`;
+
+                const kart = document.createElement('div');
+                kart.className = "bg-white dark:bg-slate-800 rounded-xl shadow-sm hover:shadow-md transition-all duration-300 hover:-translate-y-1 p-6 border border-gray-100 dark:border-slate-700 flex flex-col h-full relative";
+                
+                kart.innerHTML = `
+                    ${acilHTML}
+                    <div class="flex justify-between items-start mb-4 gap-2">
+                        <span class="${kaynakRenk} text-xs font-bold px-3 py-1 rounded-full uppercase tracking-wider">${etiketTuru}</span>
+                        <button class="fav-btn p-1 hover:scale-110 transition-transform" data-id="${ilan.orijinal_ilan_id}" title="Favorilere Ekle">
+                            <i class="${favIkon} text-xl"></i>
+                        </button>
+                    </div>
+                    <h3 class="text-lg font-bold text-gray-900 dark:text-white mb-2 line-clamp-2 leading-snug">${ilan.baslik || 'İlan Başlığı Yok'}</h3>
+                    <p class="text-sm text-gray-600 dark:text-gray-400 mb-4 flex-grow"><i class="fas fa-building text-gray-400 mr-2"></i>${ilan.kurum_adi || 'Kurum detayda belirtilmiştir'}</p>
+                    
+                    <div class="flex justify-between items-center mb-4 text-xs font-medium text-gray-500 dark:text-gray-400">
+                        <span class="flex items-center"><i class="fas fa-map-marker-alt mr-1"></i> ${ilan.sehir || 'Türkiye Geneli'}</span>
+                        <span class="flex items-center text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/20 px-2 py-1 rounded"><i class="far fa-clock mr-1"></i> Son: ${formatliTarih}</span>
+                    </div>
+
+                    <div class="pt-4 border-t border-gray-100 dark:border-slate-700 flex items-center justify-between">
+                        <div class="flex gap-2">
+                            <a href="${wpLink}" target="_blank" class="text-green-500 hover:text-green-600 bg-green-50 dark:bg-green-900/20 p-2 rounded-lg transition-colors" title="WhatsApp'ta Paylaş"><i class="fab fa-whatsapp text-lg"></i></a>
+                            <a href="${tgLink}" target="_blank" class="text-blue-400 hover:text-blue-500 bg-blue-50 dark:bg-blue-900/20 p-2 rounded-lg transition-colors" title="Telegram'da Paylaş"><i class="fab fa-telegram-plane text-lg"></i></a>
+                        </div>
+                        <a href="${ilan.basvuru_linki || '#'}" target="_blank" class="text-blue-600 dark:text-blue-400 hover:text-blue-800 font-semibold text-sm bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50 px-4 py-2 rounded-lg transition-colors">
+                            İlana Git <i class="fas fa-arrow-right ml-1 text-xs"></i>
+                        </a>
+                    </div>
+                `;
+                ilanListesi.appendChild(kart);
+            });
+
+            if (toplamSayfa > 1) {
+                sayfalamaAlani.classList.remove('hidden');
+                document.getElementById('sayfa-bilgisi').innerText = `Sayfa ${mevcutSayfa} / ${toplamSayfa}`;
+                document.getElementById('btn-onceki').disabled = (mevcutSayfa === 1);
+                document.getElementById('btn-sonraki').disabled = (mevcutSayfa === toplamSayfa);
+            } else {
+                sayfalamaAlani.classList.add('hidden');
+            }
+        }
+
+        // Event Dinleyicileri
+        document.getElementById('aramaKutusu').addEventListener('input', (e) => { aramaMetni = e.target.value; listeyiGuncelle(); });
+        document.getElementById('siralamaTipi').addEventListener('change', (e) => { aktifSiralama = e.target.value; listeyiGuncelle(); });
+
+        document.querySelectorAll('.kat-btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                document.querySelectorAll('.kat-btn').forEach(b => {
+                    if(b.getAttribute('data-kat') !== 'Favoriler') {
+                        b.classList.remove('bg-blue-600', 'text-white', 'shadow-md');
+                        b.classList.add('bg-white', 'text-gray-600', 'dark:bg-slate-700', 'dark:text-gray-300');
+                    } else {
+                        b.classList.remove('bg-rose-600', 'text-white');
+                        b.classList.add('bg-rose-50', 'text-rose-600');
+                    }
+                });
+
+                aktifKategori = e.target.getAttribute('data-kat');
+                if (aktifKategori === 'Favoriler') {
+                    e.target.classList.remove('bg-rose-50', 'text-rose-600');
+                    e.target.classList.add('bg-rose-600', 'text-white', 'shadow-md');
+                } else {
+                    e.target.classList.remove('bg-white', 'text-gray-600', 'dark:bg-slate-700', 'dark:text-gray-300');
+                    e.target.classList.add('bg-blue-600', 'text-white', 'shadow-md');
+                }
+                listeyiGuncelle();
+            });
+        });
+
+        ilanListesi.addEventListener('click', (e) => {
+            const btn = e.target.closest('.fav-btn');
+            if (btn) {
+                const id = btn.getAttribute('data-id');
+                if (favoriler.includes(id)) {
+                    favoriler = favoriler.filter(f => f !== id);
+                    btn.innerHTML = '<i class="far fa-heart text-gray-400 dark:text-gray-500 text-xl"></i>';
+                } else {
+                    favoriler.push(id);
+                    btn.innerHTML = '<i class="fas fa-heart text-red-500 text-xl"></i>';
+                }
+                localStorage.setItem('kamu_favoriler', JSON.stringify(favoriler));
+                if (aktifKategori === 'Favoriler') listeyiGuncelle();
+            }
+        });
+
+        document.getElementById('btn-onceki').addEventListener('click', () => {
+            if (mevcutSayfa > 1) { mevcutSayfa--; sayfayiCiz(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+        });
+        document.getElementById('btn-sonraki').addEventListener('click', () => {
+            const toplamSayfa = Math.ceil(filtrelenmisIlanlar.length / sayfaBasinaIlan);
+            if (mevcutSayfa < toplamSayfa) { mevcutSayfa++; sayfayiCiz(); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+        });
+
+        document.getElementById('bultenFormu').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const email = document.getElementById('bultenEmail').value;
+            const mesajKutusu = document.getElementById('bultenMesaj');
+            try {
+                const { error } = await db.from('aboneler').insert([{ email: email }]);
+                if (error) throw error;
+                mesajKutusu.innerText = "Harika! Başarıyla abone oldunuz.";
+                mesajKutusu.className = "mt-4 text-sm font-semibold text-emerald-600 dark:text-emerald-400 block";
+                e.target.reset();
+            } catch (error) {
+                if(error.code === '23505') mesajKutusu.innerText = "Bu e-posta adresi zaten kayıtlı.";
+                else mesajKutusu.innerText = "Bir hata oluştu, lütfen tekrar deneyin.";
+                mesajKutusu.className = "mt-4 text-sm font-semibold text-red-600 dark:text-red-400 block";
+            }
+            setTimeout(() => { mesajKutusu.classList.add('hidden'); }, 5000);
+        });
+
+        setTimeout(ilanlariGetir, 300);
+
+        // --- 3. PWA (Progressive Web App) KONTROLLERİ ---
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js')
+                    .then(reg => console.log('Service Worker başarıyla kaydedildi.', reg.scope))
+                    .catch(err => console.log('Service Worker hatası:', err));
+            });
+        }
+
+        let deferredPrompt;
+        const kurulumKutusu = document.getElementById('pwa-kurulum-kutusu');
+        const kurButonu = document.getElementById('btn-kur-pwa');
+        const kapatButonu = document.getElementById('btn-kapat-pwa');
+        const iosRehber = document.getElementById('ios-rehber');
+
+        const isIos = () => /iphone|ipad|ipod/.test(window.navigator.userAgent.toLowerCase());
+        const isStandalone = () => ('standalone' in window.navigator) && window.navigator.standalone || window.matchMedia('(display-mode: standalone)').matches;
+
+        const kutuyuGoster = () => {
+            if (isStandalone() || localStorage.getItem('pwa_reddedildi')) return;
+            setTimeout(() => { kurulumKutusu.classList.remove('translate-y-full'); }, 3000);
+        };
+
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            kurButonu.classList.remove('hidden');
+            kutuyuGoster();
+        });
+
+        if (isIos() && !isStandalone()) {
+            iosRehber.classList.remove('hidden');
+            kutuyuGoster();
+        }
+
+        kurButonu.addEventListener('click', async () => {
+            if (deferredPrompt !== null) {
+                deferredPrompt.prompt();
+                const { outcome } = await deferredPrompt.userChoice;
+                if (outcome === 'accepted') kurulumKutusu.classList.add('translate-y-full');
+                deferredPrompt = null;
+            }
+        });
+
+        kapatButonu.addEventListener('click', () => {
+            kurulumKutusu.classList.add('translate-y-full');
+            localStorage.setItem('pwa_reddedildi', 'true');
+        });
+    </script>
+</body>
+</html>

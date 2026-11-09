@@ -1,0 +1,15 @@
+{
+  "name": "Kamu İlanları Merkezi",
+  "short_name": "Kamu İlanları",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "https://cdn-icons-png.flaticon.com/512/3281/3281289.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

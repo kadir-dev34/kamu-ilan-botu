@@ -2,14 +2,12 @@ import os
 from playwright.sync_api import sync_playwright
 from supabase import Client, create_client
 
-# Yerelde .env dosyasını okur; GitHub ortamında paket yoksa hata vermeden atlar
 try:
     from dotenv import load_dotenv
     load_dotenv()
 except ImportError:
     pass
 
-# URL ve KEY değerlerini temizler ve geçerli formatta olup olmadığını doğrular
 raw_url = (os.getenv("SUPABASE_URL") or "").strip()
 SUPABASE_URL = raw_url if raw_url.startswith("http") else "https://qgdpkjkdlicqltagcsgq.supabase.co"
 
@@ -21,21 +19,35 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 def iskur_ilanlari_cek():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
+        # İŞKUR bot engellerini aşmak için User-Agent tanımlıyoruz
+        context = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        )
+        page = context.new_page()
         
         print("İŞKUR kamu işçi ilanları taranıyor...")
         unique_ilanlar = {}
         
         try:
-            # İŞKUR esube kamu ilanları arama sayfası
             url = "https://esube.iskur.gov.tr/OzelIstihdam/KamuIlanIsSorgu.aspx"
             page.goto(url, timeout=60000, wait_until="domcontentloaded")
             page.wait_for_timeout(3000)
             
-            # İlan tablosundaki satırları tara
+            # Sayfada "Ara" butonu varsa otomatik tıklatıyoruz
+            ara_butonu = page.locator("input[value='Ara'], input#btnAra, button:has-text('Ara')").first
+            if ara_butonu.is_visible():
+                ara_butonu.click()
+                page.wait_for_timeout(4000)
+            
+            # İlan tablosunun yüklenmesini bekle
+            try:
+                page.wait_for_selector("table#dgKamuIlanlari", timeout=10000)
+            except Exception:
+                pass
+            
             satirlar = page.locator("table#dgKamuIlanlari tr").all()
             
-            for satir in satirlar[1:]: # Başlık satırını atla
+            for satir in satirlar[1:]:
                 try:
                     sutunlar = satir.locator("td").all()
                     if len(sutunlar) < 4:
@@ -60,7 +72,7 @@ def iskur_ilanlari_cek():
                             "sehir": sehir if sehir else "Türkiye Geneli",
                             "basvuru_linki": tam_link
                         }
-                except Exception as ex:
+                except Exception:
                     continue
 
             ilanlar = list(unique_ilanlar.values())

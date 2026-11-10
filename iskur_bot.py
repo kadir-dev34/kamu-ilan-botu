@@ -19,9 +19,11 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 def iskur_ilanlari_cek():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
+        # Yurt dışı IP / Bot engellerini aşmak için gerçek tarayıcı profili tanımlıyoruz
         context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            viewport={"width": 1280, "height": 800}
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            locale="tr-TR",
+            timezone_id="Europe/Istanbul"
         )
         page = context.new_page()
         
@@ -30,17 +32,20 @@ def iskur_ilanlari_cek():
         
         try:
             url = "https://esube.iskur.gov.tr/OzelIstihdam/KamuIlanIsSorgu.aspx"
-            page.goto(url, timeout=60000, wait_until="networkidle")
+            response = page.goto(url, timeout=60000, wait_until="domcontentloaded")
+            print(f"Sayfa Başlığı: '{page.title()}' (HTTP {response.status if response else 'Yok'})")
             page.wait_for_timeout(3000)
             
-            # ASP.NET "Ara" butonunu tetikle
-            ara_btn = page.locator("input[value='Ara'], input#btnAra, input[name*='btnAra']").first
-            if ara_btn.is_visible():
-                ara_btn.click()
-                page.wait_for_timeout(5000)
+            # Form üzerindeki "Ara" butonunu bulup tetikle
+            ara_butonlari = page.locator("input[type='submit'], input[value='Ara'], input[name*='btnAra']").all()
+            if ara_butonlari:
+                print("Ara butonuna basılıyor...")
+                ara_butonlari[0].click()
+                page.wait_for_timeout(4000)
             
-            # Tablo satırlarını esnek şekilde tara
-            satirlar = page.locator("table[id*='KamuIlanlari'] tr, table tr").all()
+            # Sayfadaki tüm tabloları ve satırları tara
+            satirlar = page.locator("table tr").all()
+            print(f"Sayfada bulunan toplam tablo satırı sayısı: {len(satirlar)}")
             
             for satir in satirlar:
                 try:
@@ -51,7 +56,7 @@ def iskur_ilanlari_cek():
                     metinler = [td.inner_text().strip() for td in sutunlar]
                     ilan_no = metinler[0]
                     
-                    # Sadece sayısal İlan Numarası barındıran geçerli satırları al
+                    # Sadece sayısal İlan Numarası olan satırları işle
                     if not ilan_no.isdigit():
                         continue
                         

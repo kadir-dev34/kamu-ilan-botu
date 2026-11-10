@@ -55,8 +55,8 @@ def iskur_ilanlari_cek():
             except Exception:
                 pass
 
-            # 4. ADIM: "Ara" butonuna bas ve ASP.NET PostBack yüklemesini bekle
-            ara_btn = page.locator("input[type='submit'][value='Ara'], input#btnAra, input[name*='btnAra'], button:has-text('Ara')").first
+            # 4. ADIM: "Ara" butonuna bas ve ASP.NET PostBack yüklemesini bekle (Genişletilmiş Buton Seçici)
+            ara_btn = page.locator("input[id*='btnAra'], input[name*='btnAra'], input[value*='Ara'], button:has-text('Ara'), input[type='submit']").first
             if ara_btn.is_visible():
                 print("Ara butonuna basılıyor ve ilan tablosu bekleniyor...")
                 ara_btn.click()

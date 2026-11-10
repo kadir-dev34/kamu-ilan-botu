@@ -17,13 +17,12 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
-        cache: 'pip' # Bağımlılıkları hızlandırmak için önbellekleme ekledik
+        cache: 'pip'
 
     - name: Gerekli Kütüphaneleri Yükle
       run: |
         python -m pip install --upgrade pip
-        # Tüm bağımlılıkları doğrudan ve eksiksiz yüklüyoruz
-        pip install supabase requests beautifulsoup4 playwright python-dotenv
+        pip install -r requirements.txt
         playwright install chromium
 
     - name: İlan.gov.tr Botunu Çalıştır

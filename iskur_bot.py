@@ -19,7 +19,6 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 def iskur_ilanlari_cek():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        # Yurt dışı IP / Bot engellerini aşmak için gerçek tarayıcı profili tanımlıyoruz
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
             locale="tr-TR",
@@ -30,22 +29,41 @@ def iskur_ilanlari_cek():
         print("İŞKUR kamu işçi ilanları taranıyor...")
         unique_ilanlar = {}
         
+        # İŞKUR Güncel Kamu İlanı Adresleri
+        target_urls = [
+            "https://esube.iskur.gov.tr/Istihdam/KamuIlanIsSorgu.aspx",
+            "https://esube.iskur.gov.tr/Istihdam/KamuIlanArama.aspx"
+        ]
+        
+        working_url = None
+        for url in target_urls:
+            try:
+                response = page.goto(url, timeout=30000, wait_until="domcontentloaded")
+                if response and response.status == 200 and "cannot be found" not in page.title().lower():
+                    working_url = url
+                    print(f"Bağlantı başarılı: {url} (HTTP 200 - '{page.title()}')")
+                    break
+            except Exception:
+                continue
+        
+        if not working_url:
+            print("İŞKUR geçerli bir kamu ilan adresi yanıt vermedi.")
+            browser.close()
+            return
+
         try:
-            url = "https://esube.iskur.gov.tr/OzelIstihdam/KamuIlanIsSorgu.aspx"
-            response = page.goto(url, timeout=60000, wait_until="domcontentloaded")
-            print(f"Sayfa Başlığı: '{page.title()}' (HTTP {response.status if response else 'Yok'})")
             page.wait_for_timeout(3000)
             
             # Form üzerindeki "Ara" butonunu bulup tetikle
-            ara_butonlari = page.locator("input[type='submit'], input[value='Ara'], input[name*='btnAra']").all()
-            if ara_butonlari:
+            ara_btn = page.locator("input[type='submit'], input[value='Ara'], input[name*='btnAra']").first
+            if ara_btn.is_visible():
                 print("Ara butonuna basılıyor...")
-                ara_butonlari[0].click()
+                ara_btn.click()
                 page.wait_for_timeout(4000)
             
-            # Sayfadaki tüm tabloları ve satırları tara
+            # Tablodaki verileri çek
             satirlar = page.locator("table tr").all()
-            print(f"Sayfada bulunan toplam tablo satırı sayısı: {len(satirlar)}")
+            print(f"Sayfada okunan tablo satırı sayısı: {len(satirlar)}")
             
             for satir in satirlar:
                 try:
@@ -56,7 +74,7 @@ def iskur_ilanlari_cek():
                     metinler = [td.inner_text().strip() for td in sutunlar]
                     ilan_no = metinler[0]
                     
-                    # Sadece sayısal İlan Numarası olan satırları işle
+                    # Sadece sayısal İlan Numarası barındıran satırları kabul et
                     if not ilan_no.isdigit():
                         continue
                         
@@ -66,7 +84,7 @@ def iskur_ilanlari_cek():
                     
                     link_elem = sutunlar[0].locator("a").first
                     href = link_elem.get_attribute("href") if link_elem.count() > 0 else ""
-                    tam_link = href if href.startswith("http") else f"https://esube.iskur.gov.tr/OzelIstihdam/{href}" if href else url
+                    tam_link = href if href.startswith("http") else f"https://esube.iskur.gov.tr/Istihdam/{href}" if href else working_url
 
                     if ilan_no and ilan_no not in unique_ilanlar:
                         unique_ilanlar[ilan_no] = {

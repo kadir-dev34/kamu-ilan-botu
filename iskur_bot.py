@@ -44,22 +44,26 @@ def iskur_ilanlari_cek():
             
             # 3. ADIM: "Kamu" radyo butonunu seç
             try:
-                kamu_elem = page.locator("label:has-text('Kamu'), input[value='Kamu'], input[id*='Kamu']").first
+                kamu_elem = page.locator("input[value='Kamu'], input[id*='Kamu'], label:has-text('Kamu')").first
                 if kamu_elem.is_visible():
                     print("Kamu ilan filtresi seçiliyor...")
                     kamu_elem.click()
                     page.wait_for_timeout(1500)
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Kamu filtresi uyarısı: {e}")
 
-            # 4. ADIM: Ara butonuna bas
-            ara_btn = page.locator("input[id*='btnAra'], input[name*='btnAra'], input[value*='Ara'], button:has-text('Ara')").first
+            # 4. ADIM: "Ara" butonuna tıkla ve bekle
+            ara_btn = page.locator("input[type='submit'][value='Ara'], input[id*='btnAra'], input[name*='btnAra'], button:has-text('Ara')").first
             if ara_btn.is_visible():
-                print("Ara butonuna basılıyor ve ilan tablosu bekleniyor...")
+                print("Ara butonuna basılıyor ve sonuçlar bekleniyor...")
                 ara_btn.click()
-                page.wait_for_timeout(5000)
+                page.wait_for_timeout(6000)
+            else:
+                print("Ara butonu doğrudan bulunamadı, Enter tuşu ile form tetikleniyor...")
+                page.keyboard.press("Enter")
+                page.wait_for_timeout(6000)
 
-            # 5. ADIM: İlan tablosundaki tüm satırları tara
+            # 5. ADIM: İlanları ayrıştır (Yöntem 1: Tablo ve Metin Taraması)
             satirlar = page.locator("table tr").all()
             print(f"Sayfada okunan toplam tablo satırı sayısı: {len(satirlar)}")
             
@@ -69,30 +73,23 @@ def iskur_ilanlari_cek():
                     if not satir_metni or len(satir_metni) < 15:
                         continue
                     
-                    sutunlar = satir.locator("td").all()
-                    if not sutunlar:
-                        continue
-                    
-                    metinler = [td.inner_text().strip() for td in sutunlar if td.inner_text().strip()]
-                    if not metinler:
-                        continue
-
-                    # İlan başlık satırını atla
-                    if "Son Başvuru" in satir_metni or "Arama Kayıt" in satir_metni:
-                        continue
-
-                    # İlan Numarasını (0000... ile başlayan 11 haneli sayı) satır metninden çek
+                    # 11 haneli İlan No kontrolü (Örn: 00008983736)[cite: 5]
                     ilan_no_match = re.search(r'\b0\d{10}\b|\b\d{7,11}\b', satir_metni)
+                    if not ilan_no_match:
+                        continue
+                        
+                    ilan_no = ilan_no_match.group(0)
                     
-                    baslik = metinler[0].split('\n')[0]
+                    sutunlar = satir.locator("td").all()
+                    metinler = [td.inner_text().strip() for td in sutunlar if td.inner_text().strip()]
+                    
+                    baslik = metinler[0].split('\n')[0] if metinler else "Kamu İşçisi"
                     kurum_adi = metinler[1].split('\n')[0] if len(metinler) > 1 else "İŞKUR Kamu Kurumu"
                     sehir = metinler[2].split('\n')[0] if len(metinler) > 2 else "Türkiye Geneli"
                     
                     link_elem = satir.locator("a").first
                     href = link_elem.get_attribute("href") if link_elem.count() > 0 else ""
                     tam_link = href if href.startswith("http") else f"https://esube.iskur.gov.tr/Istihdam/{href}" if href else search_url
-
-                    ilan_no = ilan_no_match.group(0) if ilan_no_match else f"iskur_{index}"
 
                     if ilan_no not in unique_ilanlar:
                         unique_ilanlar[ilan_no] = {
@@ -106,6 +103,31 @@ def iskur_ilanlari_cek():
                         }
                 except Exception:
                     continue
+
+            # Yöntem 2: Esnek İlan Kartı / Link Taraması (Tablodan çekilemeyen durumlar için yedek)
+            if not unique_ilanlar:
+                print("Yedek ilan kartı tarama yöntemine geçiliyor...")
+                links = page.locator("a[href*='Ilan'], a[href*='uiID']").all()
+                for link in links:
+                    try:
+                        href = link.get_attribute("href") or ""
+                        text = link.inner_text().strip()
+                        ilan_no_match = re.search(r'\b0\d{10}\b|\b\d{7,11}\b', href + " " + text)
+                        if ilan_no_match and len(text) > 3:
+                            ilan_no = ilan_no_match.group(0)
+                            tam_link = href if href.startswith("http") else f"https://esube.iskur.gov.tr/Istihdam/{href}"
+                            if ilan_no not in unique_ilanlar:
+                                unique_ilanlar[ilan_no] = {
+                                    "kaynak_sistem": "ISKUR",
+                                    "orijinal_ilan_id": f"iskur_{ilan_no}",
+                                    "baslik": text,
+                                    "kurum_adi": "İŞKUR Kamu Kurumu",
+                                    "ilan_turu": "İŞKUR İşçi",
+                                    "sehir": "Türkiye Geneli",
+                                    "basvuru_linki": tam_link
+                                }
+                    except Exception:
+                        continue
 
             ilanlar = list(unique_ilanlar.values())
             print(f"Toplam {len(ilanlar)} adet İŞKUR ilanı çekildi. Supabase'e işleniyor...")

@@ -19,9 +19,9 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 def iskur_ilanlari_cek():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
-        # İŞKUR bot engellerini aşmak için User-Agent tanımlıyoruz
         context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            viewport={"width": 1280, "height": 800}
         )
         page = context.new_page()
         
@@ -30,33 +30,34 @@ def iskur_ilanlari_cek():
         
         try:
             url = "https://esube.iskur.gov.tr/OzelIstihdam/KamuIlanIsSorgu.aspx"
-            page.goto(url, timeout=60000, wait_until="domcontentloaded")
+            page.goto(url, timeout=60000, wait_until="networkidle")
             page.wait_for_timeout(3000)
             
-            # Sayfada "Ara" butonu varsa otomatik tıklatıyoruz
-            ara_butonu = page.locator("input[value='Ara'], input#btnAra, button:has-text('Ara')").first
-            if ara_butonu.is_visible():
-                ara_butonu.click()
-                page.wait_for_timeout(4000)
+            # ASP.NET "Ara" butonunu tetikle
+            ara_btn = page.locator("input[value='Ara'], input#btnAra, input[name*='btnAra']").first
+            if ara_btn.is_visible():
+                ara_btn.click()
+                page.wait_for_timeout(5000)
             
-            # İlan tablosunun yüklenmesini bekle
-            try:
-                page.wait_for_selector("table#dgKamuIlanlari", timeout=10000)
-            except Exception:
-                pass
+            # Tablo satırlarını esnek şekilde tara
+            satirlar = page.locator("table[id*='KamuIlanlari'] tr, table tr").all()
             
-            satirlar = page.locator("table#dgKamuIlanlari tr").all()
-            
-            for satir in satirlar[1:]:
+            for satir in satirlar:
                 try:
                     sutunlar = satir.locator("td").all()
                     if len(sutunlar) < 4:
                         continue
                     
-                    ilan_no = sutunlar[0].inner_text().strip()
-                    kurum_adi = sutunlar[1].inner_text().strip()
-                    meslek = sutunlar[2].inner_text().strip()
-                    sehir = sutunlar[3].inner_text().strip()
+                    metinler = [td.inner_text().strip() for td in sutunlar]
+                    ilan_no = metinler[0]
+                    
+                    # Sadece sayısal İlan Numarası barındıran geçerli satırları al
+                    if not ilan_no.isdigit():
+                        continue
+                        
+                    kurum_adi = metinler[1]
+                    meslek = metinler[2]
+                    sehir = metinler[3] if len(metinler) > 3 else "Türkiye Geneli"
                     
                     link_elem = sutunlar[0].locator("a").first
                     href = link_elem.get_attribute("href") if link_elem.count() > 0 else ""

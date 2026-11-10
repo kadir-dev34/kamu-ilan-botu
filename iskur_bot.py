@@ -22,56 +22,43 @@ def iskur_ilanlari_cek():
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
             locale="tr-TR",
-            timezone_id="Europe/Istanbul",
-            ignore_https_errors=True
+            timezone_id="Europe/Istanbul"
         )
         page = context.new_page()
         
         print("İŞKUR kamu işçi ilanları taranıyor...")
         unique_ilanlar = {}
         
-        # İŞKUR kamu ilanları için olası tüm aktif URL rotaları
-        target_urls = [
-            "https://esube.iskur.gov.tr/Istihdam/KamuIlanKurumIsSorgu.aspx",
-            "https://esube.iskur.gov.tr/Istihdam/KamuIlanIsSorgu.aspx",
-            "https://esube.iskur.gov.tr/OzelIstihdam/KamuIlanIsSorgu.aspx",
-            "https://esube.iskur.gov.tr/Istihdam/JobsSearch.aspx"
-        ]
-        
-        working_url = None
-        for url in target_urls:
-            try:
-                print(f"Deneniyor: {url}")
-                response = page.goto(url, timeout=25000, wait_until="domcontentloaded")
-                status = response.status if response else 0
-                title = page.title().strip()
-                print(f" -> Yanıt: HTTP {status} | Başlık: '{title}'")
-                
-                # Başarılı sayfa kontrolü (404/Bulunamadı sayfalarını atla)
-                if status == 200 and "cannot be found" not in title.lower() and "bulunamadı" not in title.lower():
-                    working_url = url
-                    print(f"✓ Geçerli adres bulundu: {working_url}")
-                    break
-            except Exception as ex:
-                print(f" -> Bağlantı hatası: {ex}")
-                continue
-        
-        if not working_url:
-            print("İŞKUR geçerli bir kamu ilan adresi yanıt vermedi.")
-            browser.close()
-            return
-
         try:
+            # 1. ADIM: Oturum/Çerez oluşturmak için önce ana sayfaya gidiyoruz
+            print("İŞKUR ana sayfasına bağlanılıyor (Oturum başlatılıyor)...")
+            page.goto("https://esube.iskur.gov.tr/", timeout=30000, wait_until="domcontentloaded")
+            page.wait_for_timeout(2000)
+            
+            # 2. ADIM: Güncel açık iş ilan arama sayfasına geçiş yapıyoruz
+            search_url = "https://esube.iskur.gov.tr/Istihdam/AcikIsIlanAra.aspx"
+            print(f"Arama sayfasına gidiliyor: {search_url}")
+            response = page.goto(search_url, timeout=30000, wait_until="domcontentloaded")
+            status = response.status if response else 0
+            title = page.title().strip()
+            print(f" -> Yanıt: HTTP {status} | Başlık: '{title}'")
+            
             page.wait_for_timeout(3000)
             
-            # Form üzerindeki "Ara" butonunu bulup tetikle
+            # 3. ADIM: "Kamu" radyo butonunu veya filtresini seçip "Ara" butonuna basıyoruz
+            kamu_radio = page.locator("input[value='Kamu'], input[id*='Kamu'], input[id*='chkKamu']").first
+            if kamu_radio.is_visible():
+                print("Kamu ilan filtresi seçiliyor...")
+                kamu_radio.check()
+                page.wait_for_timeout(1000)
+
             ara_btn = page.locator("input[type='submit'], input[value='Ara'], input[name*='btnAra'], button:has-text('Ara')").first
             if ara_btn.is_visible():
                 print("Ara butonuna basılıyor...")
                 ara_btn.click()
-                page.wait_for_timeout(4000)
-            
-            # Tablodaki verileri çek
+                page.wait_for_timeout(5000)
+
+            # 4. ADIM: Tablodaki ilanları tara
             satirlar = page.locator("table tr").all()
             print(f"Sayfada okunan tablo satırı sayısı: {len(satirlar)}")
             
@@ -84,7 +71,6 @@ def iskur_ilanlari_cek():
                     metinler = [td.inner_text().strip() for td in sutunlar]
                     ilan_no = metinler[0]
                     
-                    # Sadece sayısal İlan Numarası barındıran satırları al
                     if not ilan_no.isdigit():
                         continue
                         
@@ -94,7 +80,7 @@ def iskur_ilanlari_cek():
                     
                     link_elem = sutunlar[0].locator("a").first
                     href = link_elem.get_attribute("href") if link_elem.count() > 0 else ""
-                    tam_link = href if href.startswith("http") else f"https://esube.iskur.gov.tr/Istihdam/{href}" if href else working_url
+                    tam_link = href if href.startswith("http") else f"https://esube.iskur.gov.tr/Istihdam/{href}" if href else search_url
 
                     if ilan_no and ilan_no not in unique_ilanlar:
                         unique_ilanlar[ilan_no] = {

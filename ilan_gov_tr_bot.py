@@ -2,15 +2,19 @@ import os
 from playwright.sync_api import sync_playwright
 from supabase import Client, create_client
 
-# Bilgisayarında çalışırken .env okur, GitHub sunucusunda ise hata vermeden geçer
+# Yerelde .env dosyasını okur; GitHub ortamında paket yoksa hata vermeden atlar
 try:
     from dotenv import load_dotenv
     load_dotenv()
 except ImportError:
     pass
 
-SUPABASE_URL = os.getenv("SUPABASE_URL", "https://qgdpkjkdlicqltagcsgq.supabase.co")
-SUPABASE_KEY = os.getenv("SUPABASE_KEY", "sb_publishable_APY9Yn4FsZL4IxGIR9ndzg_-1Xaz_-y")
+# URL ve KEY değerlerini temizler ve geçerli formatta olup olmadığını doğrular
+raw_url = (os.getenv("SUPABASE_URL") or "").strip()
+SUPABASE_URL = raw_url if raw_url.startswith("http") else "https://qgdpkjkdlicqltagcsgq.supabase.co"
+
+raw_key = (os.getenv("SUPABASE_KEY") or "").strip()
+SUPABASE_KEY = raw_key or "sb_publishable_APY9Yn4FsZL4IxGIR9ndzg_-1Xaz_-y"
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 

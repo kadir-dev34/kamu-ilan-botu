@@ -20,30 +20,40 @@ def iskur_ilanlari_cek():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
             locale="tr-TR",
-            timezone_id="Europe/Istanbul"
+            timezone_id="Europe/Istanbul",
+            ignore_https_errors=True
         )
         page = context.new_page()
         
         print("İŞKUR kamu işçi ilanları taranıyor...")
         unique_ilanlar = {}
         
-        # İŞKUR Güncel Kamu İlanı Adresleri
+        # İŞKUR kamu ilanları için olası tüm aktif URL rotaları
         target_urls = [
+            "https://esube.iskur.gov.tr/Istihdam/KamuIlanKurumIsSorgu.aspx",
             "https://esube.iskur.gov.tr/Istihdam/KamuIlanIsSorgu.aspx",
-            "https://esube.iskur.gov.tr/Istihdam/KamuIlanArama.aspx"
+            "https://esube.iskur.gov.tr/OzelIstihdam/KamuIlanIsSorgu.aspx",
+            "https://esube.iskur.gov.tr/Istihdam/JobsSearch.aspx"
         ]
         
         working_url = None
         for url in target_urls:
             try:
-                response = page.goto(url, timeout=30000, wait_until="domcontentloaded")
-                if response and response.status == 200 and "cannot be found" not in page.title().lower():
+                print(f"Deneniyor: {url}")
+                response = page.goto(url, timeout=25000, wait_until="domcontentloaded")
+                status = response.status if response else 0
+                title = page.title().strip()
+                print(f" -> Yanıt: HTTP {status} | Başlık: '{title}'")
+                
+                # Başarılı sayfa kontrolü (404/Bulunamadı sayfalarını atla)
+                if status == 200 and "cannot be found" not in title.lower() and "bulunamadı" not in title.lower():
                     working_url = url
-                    print(f"Bağlantı başarılı: {url} (HTTP 200 - '{page.title()}')")
+                    print(f"✓ Geçerli adres bulundu: {working_url}")
                     break
-            except Exception:
+            except Exception as ex:
+                print(f" -> Bağlantı hatası: {ex}")
                 continue
         
         if not working_url:
@@ -55,7 +65,7 @@ def iskur_ilanlari_cek():
             page.wait_for_timeout(3000)
             
             # Form üzerindeki "Ara" butonunu bulup tetikle
-            ara_btn = page.locator("input[type='submit'], input[value='Ara'], input[name*='btnAra']").first
+            ara_btn = page.locator("input[type='submit'], input[value='Ara'], input[name*='btnAra'], button:has-text('Ara')").first
             if ara_btn.is_visible():
                 print("Ara butonuna basılıyor...")
                 ara_btn.click()
@@ -74,7 +84,7 @@ def iskur_ilanlari_cek():
                     metinler = [td.inner_text().strip() for td in sutunlar]
                     ilan_no = metinler[0]
                     
-                    # Sadece sayısal İlan Numarası barındıran satırları kabul et
+                    # Sadece sayısal İlan Numarası barındıran satırları al
                     if not ilan_no.isdigit():
                         continue
                         

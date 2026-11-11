@@ -15,7 +15,7 @@ import ortak
 KAYNAK = "ISKUR"
 URL = "https://esube.iskur.gov.tr/Istihdam/AcikIsIlanAra.aspx"
 MAX_SAYFA = 60
-MIN_ILAN_PASIF_ICIN = 20
+MIN_ILAN_PASIF_ICIN = 3
 
 JS_TOPLA = """
 () => Array.from(document.querySelectorAll('a.share-toggle')).map(a => ({

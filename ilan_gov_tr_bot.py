@@ -1,134 +1,154 @@
-import os
+"""ilan.gov.tr kamu ilanları botu (Kamu Personeli, Akademik, Askeri).
+
+Akış: kategori listesi (currentPage=N) -> ilan bağlantıları -> yeni ilanların
+detay sayfası -> şehir/kurum/KPSS/mezuniyet/son başvuru çıkarımı -> Supabase.
+Detay metni değişmeyeceği için daha önce işlenmiş ilanlar tekrar açılmaz,
+sadece "görüldü" olarak işaretlenir.
+"""
+
+import re
+import sys
+
 from playwright.sync_api import sync_playwright
-from supabase import Client, create_client
 
-# Yerelde .env dosyasını okur; GitHub ortamında paket yoksa hata vermeden atlar
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass
+import ortak
 
-# URL ve KEY değerlerini temizler ve geçerli formatta olup olmadığını doğrular
-raw_url = (os.getenv("SUPABASE_URL") or "").strip()
-SUPABASE_URL = raw_url if raw_url.startswith("http") else "https://qgdpkjkdlicqltagcsgq.supabase.co"
+KAYNAK = "ILAN_GOV_TR"
+BASE = "https://www.ilan.gov.tr"
+KATEGORILER = [
+    ("Kamu Personeli", f"{BASE}/ilan/kategori/44/kamu-personeli"),
+    ("Akademik Personel", f"{BASE}/ilan/kategori/73/akademik-personel"),
+    ("Askeri Personel", f"{BASE}/ilan/kategori/72/askeri-personel"),
+]
+MAX_SAYFA = 40
+MAX_DETAY_PER_RUN = 400
+MIN_ILAN_PASIF_ICIN = 30
+ILAN_YOLU = re.compile(r"^/ilan/(\d+)(?:/|$)")
 
-raw_key = (os.getenv("SUPABASE_KEY") or "").strip()
-SUPABASE_KEY = raw_key or "sb_publishable_APY9Yn4FsZL4IxGIR9ndzg_-1Xaz_-y"
+JS_LINKLER = """
+() => Array.from(document.querySelectorAll('a[href]')).map(a => ({
+  href: a.getAttribute('href'),
+  text: (a.innerText || '').trim()
+}))
+"""
 
-supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-def ilan_gov_tr_cek():
-    with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
-        page = browser.new_page()
-        
-        print("Basın İlan Kurumu (ilan.gov.tr) ana sayfasına gidiliyor...")
-        kategoriler = []
-        
+def liste_oku(sayfa, ad, url):
+    """Bir kategorinin tüm sayfalarını gezip {id: (baslik, link)} döndürür."""
+    sonuc = {}
+    for no in range(1, MAX_SAYFA + 1):
+        sayfa.goto(f"{url}?currentPage={no}", wait_until="domcontentloaded")
         try:
-            # 1. ADIM: Ana kategoriye gidip sol menüden güncel alt kategori linklerini topluyoruz
-            print("Sol menüdeki güncel kategori linkleri keşfediliyor...")
-            page.goto("https://www.ilan.gov.tr/ilan/kategori/8/kamu-akademik-personel", timeout=60000, wait_until="domcontentloaded")
-            page.wait_for_timeout(3000)
-            
-            # Sayfadaki kategori menü linklerini bul
-            link_elementleri = page.locator('a[href*="/ilan/kategori/"]').all()
-            
-            for el in link_elementleri:
-                href = el.get_attribute("href")
-                metin = el.inner_text().strip()
-                
-                if not href: continue
-                tam_url = href if href.startswith("http") else f"https://www.ilan.gov.tr{href}"
-                
-                # Menüdeki isimlere göre doğru URL'leri çek
-                if "Kamu Personel Alım" in metin and not any(k['isim'] == 'Kamu Personeli' for k in kategoriler):
-                    kategoriler.append({"isim": "Kamu Personeli", "url": tam_url})
-                elif "Akademik Personel Alım" in metin and not any(k['isim'] == 'Akademik Personel' for k in kategoriler):
-                    kategoriler.append({"isim": "Akademik Personel", "url": tam_url})
-                elif "Askeri Personel Alım" in metin and not any(k['isim'] == 'Askeri Personel' for k in kategoriler):
-                    kategoriler.append({"isim": "Askeri Personel", "url": tam_url})
+            sayfa.wait_for_selector("a[href^='/ilan/']", timeout=20000)
+        except Exception:  # noqa: BLE001
+            break
+        sayfa.wait_for_timeout(800)
+        yeni = 0
+        for a in sayfa.evaluate(JS_LINKLER):
+            href = (a["href"] or "").split("?")[0].split("#")[0]
+            m = ILAN_YOLU.match(href)
+            if not m:
+                continue
+            ilan_id = m.group(1)
+            satirlar = ortak.satirlar(a["text"])
+            if ilan_id in sonuc:
+                continue
+            baslik = satirlar[0] if satirlar else ""
+            if len(baslik) < 8:
+                continue
+            sonuc[ilan_id] = {"baslik": baslik, "link": BASE + href, "tur": ad}
+            yeni += 1
+        print(f"  {ad} sayfa {no}: {yeni} yeni bağlantı")
+        if yeni == 0:
+            break
+    return sonuc
 
-            # Eğer menüden okuyamazsa bildiğimiz sağlam ID'leri (44 ve 73) yedek olarak ekle
-            if not any(k['isim'] == 'Kamu Personeli' for k in kategoriler):
-                kategoriler.append({"isim": "Kamu Personeli", "url": "https://www.ilan.gov.tr/ilan/kategori/44/kamu-personel-alim-ve-sinavlari"})
-            if not any(k['isim'] == 'Akademik Personel' for k in kategoriler):
-                kategoriler.append({"isim": "Akademik Personel", "url": "https://www.ilan.gov.tr/ilan/kategori/73/akademik-personel-alimlari"})
 
-            print(f"Bulunan Kategoriler: {[k['isim'] for k in kategoriler]}")
-            
-            unique_ilanlar = {}
-            
-            # 2. ADIM: Keşfedilen doğru linkleri sayfa sayfa gez
-            for kategori in kategoriler:
-                print(f"\n[{kategori['isim']}] taranıyor... ({kategori['url']})")
-                page.goto(kategori['url'], timeout=60000, wait_until="domcontentloaded")
-                
-                sayfa_no = 1
-                
-                while True:
-                    print(f"  -> Sayfa {sayfa_no} okunuyor...")
-                    page.wait_for_timeout(4000) 
-                    
-                    links = page.locator('a[href*="/ilan/"]').all()
-                    
-                    for link in links:
-                        href = link.get_attribute("href")
-                        if not href or "kategori" in href or "sayfa" in href or "currentPage" in href:
-                            continue
-                        
-                        baslik = link.inner_text().strip()
-                        if len(baslik) < 15:
-                            continue
-                        
-                        tam_link = href if href.startswith("http") else f"https://www.ilan.gov.tr{href}"
-                        
-                        try:
-                            ilan_id = tam_link.split("/ilan/")[1].split("/")[0]
-                        except:
-                            ilan_id = tam_link.split("/")[-1][:50]
-                        
-                        if ilan_id not in unique_ilanlar:
-                            unique_ilanlar[ilan_id] = {
-                                "kaynak_sistem": "ILAN_GOV_TR",
-                                "orijinal_ilan_id": ilan_id,
-                                "baslik": baslik.replace('\n', ' '),
-                                "kurum_adi": "Basın İlan Kurumu",
-                                "ilan_turu": kategori['isim'], 
-                                "sehir": "Türkiye Geneli",
-                                "basvuru_linki": tam_link
-                            }
-                    
-                    # Sonraki sayfaya geç
-                    try:
-                        sonraki_buton = page.locator("a:has-text('Sonraki')").first
-                        if sonraki_buton.is_visible():
-                            sonraki_buton.click()
-                            sayfa_no += 1
-                            page.wait_for_load_state("domcontentloaded")
-                        else:
-                            print(f"  [{kategori['isim']}] için son sayfaya ulaşıldı.")
-                            break
-                    except Exception as e:
-                        print(f"  [{kategori['isim']}] için sayfalama bitti.")
-                        break
+def detay_oku(sayfa, link):
+    sayfa.goto(link, wait_until="domcontentloaded")
+    sayfa.wait_for_timeout(1500)
+    try:
+        sayfa.wait_for_selector("body", timeout=10000)
+        return sayfa.inner_text("body")
+    except Exception:  # noqa: BLE001
+        return ""
 
-            ilanlar = list(unique_ilanlar.values())
-            print(f"\n====== TARAMA BİTTİ ======")
-            print(f"Toplam {len(ilanlar)} adet (Kamu, Akademik ve Askeri) ilan başarıyla çıkarıldı.")
-            print("Supabase'e yazılıyor...")
-            
-            if ilanlar:
-                supabase.table("tum_kamu_ilanlari").upsert(ilanlar, on_conflict="kaynak_sistem,orijinal_ilan_id").execute()
-                print("Tüm ilanlar başarıyla veritabanına kaydedildi!")
-            else:
-                print("Hiç ilan bulunamadı.")
-                
-        except Exception as e:
-            print(f"Hata oluştu: {e}")
-        finally:
-            browser.close()
+
+def calistir():
+    baslangic = ortak.simdi_iso()
+    db = ortak.supabase_istemcisi()
+    mevcut = ortak.mevcut_kayitlar(db, KAYNAK)
+    toplanan = {}
+
+    with sync_playwright() as p:
+        tarayici = p.chromium.launch(headless=True)
+        ctx = tarayici.new_context(locale="tr-TR", viewport={"width": 1366, "height": 900})
+        sayfa = ctx.new_page()
+        sayfa.set_default_timeout(40000)
+        try:
+            for ad, url in KATEGORILER:
+                print(f"Kategori: {ad}")
+                toplanan.update(liste_oku(sayfa, ad, url))
+        except Exception as e:  # noqa: BLE001
+            print(f"HATA (liste): {e}")
+            ortak.debug_kaydet(sayfa, "ilan_gov_liste_hata")
+            tarayici.close()
+            sys.exit(1)
+
+        if not toplanan:
+            print("HATA: Hiç ilan bulunamadı (site yapısı değişmiş olabilir).")
+            ortak.debug_kaydet(sayfa, "ilan_gov_bos")
+            tarayici.close()
+            sys.exit(1)
+
+        print(f"Toplam {len(toplanan)} ilan bulundu; {len(mevcut)} tanesi kayıtlı.")
+
+        yeni_kayitlar, tekrar_gorulen, detay_sayac = [], [], 0
+        for ilan_id, o in toplanan.items():
+            if mevcut.get(ilan_id):
+                tekrar_gorulen.append(ilan_id)
+                continue
+            kayit = {
+                "kaynak_sistem": KAYNAK,
+                "orijinal_ilan_id": ilan_id,
+                "baslik": o["baslik"],
+                "kurum_adi": ortak.kurum_bul(ortak.satirlar(o["baslik"])) or None,
+                "ilan_turu": o["tur"],
+                "sehir": "Türkiye Geneli",
+                "mezuniyet_sarti": None,
+                "kpss_turu": None,
+                "son_basvuru_tarihi": None,
+                "basvuru_linki": o["link"],
+                "detay_islendi": False,
+            }
+            if detay_sayac < MAX_DETAY_PER_RUN:
+                detay_sayac += 1
+                try:
+                    metin = detay_oku(sayfa, o["link"])
+                    if metin:
+                        satirlar = ortak.satirlar(metin)
+                        kayit["kurum_adi"] = ortak.kurum_bul(satirlar) or kayit["kurum_adi"]
+                        kayit["sehir"] = ortak.sehir_bul(metin[:6000])
+                        kayit["mezuniyet_sarti"] = ortak.mezuniyet_bul(metin)
+                        kayit["kpss_turu"] = ortak.kpss_bul(metin)
+                        kayit["son_basvuru_tarihi"] = ortak.son_basvuru_bul(metin)
+                        kayit["detay_islendi"] = True
+                except Exception as e:  # noqa: BLE001
+                    print(f"  Detay alınamadı ({ilan_id}): {e}")
+            yeni_kayitlar.append(kayit)
+            if len(yeni_kayitlar) % 25 == 0:
+                print(f"  {len(yeni_kayitlar)} yeni ilan işlendi...")
+        tarayici.close()
+
+    if yeni_kayitlar:
+        n = ortak.kayitlari_yaz(db, yeni_kayitlar, baslangic)
+        print(f"{n} yeni/güncellenen ilan yazıldı.")
+    if tekrar_gorulen:
+        ortak.gorulenleri_isaretle(db, KAYNAK, tekrar_gorulen, baslangic)
+        print(f"{len(tekrar_gorulen)} mevcut ilan 'görüldü' işaretlendi.")
+
+    ortak.pasife_al(db, KAYNAK, baslangic, len(toplanan), MIN_ILAN_PASIF_ICIN)
+
 
 if __name__ == "__main__":
-    ilan_gov_tr_cek()
+    calistir()

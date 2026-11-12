@@ -1,8 +1,9 @@
 """İŞKUR açık kamu iş ilanları botu.
 
 Sayfa: https://esube.iskur.gov.tr/Istihdam/AcikIsIlanAra.aspx
-Akış: "Kamu" seç -> "Ara" -> sonuçlardaki a.share-toggle öğelerinin data-*
-özniteliklerini oku -> Supabase'e yaz. 0 sonuçta hata koduyla çıkar.
+Akış: "Kamu" seç -> "Ara" -> sonuç tablosundaki (#ctl04_ctlGridAcikIslerListeDetail)
+her satırdan başlık, işveren (kurum), çalışma yeri, son tarih ve ilan no oku ->
+Supabase'e yaz. 0 sonuçta hata koduyla çıkar.
 """
 
 import sys
@@ -17,17 +18,28 @@ URL = "https://esube.iskur.gov.tr/Istihdam/AcikIsIlanAra.aspx"
 MAX_SAYFA = 60
 MIN_ILAN_PASIF_ICIN = 3
 
+TABLO_SEC = "#ctl04_ctlGridAcikIslerListeDetail"
+SATIR_LINK = TABLO_SEC + " a[id*='_flag_']"
+
 JS_TOPLA = """
-() => Array.from(document.querySelectorAll('a.share-toggle')).map(a => ({
-  no: a.getAttribute('data-ilanno'),
-  meslek: a.getAttribute('data-meslekler'),
-  il: a.getAttribute('data-il'),
-  sontarih: a.getAttribute('data-sontarih'),
-  url: a.getAttribute('data-url'),
-  acik: a.getAttribute('data-acikissayi'),
-  tur: a.getAttribute('data-isverentur'),
-  sekil: a.getAttribute('data-calismasekli'),
-}))
+() => Array.from(document.querySelectorAll('#ctl04_ctlGridAcikIslerListeDetail tr')).map(tr => {
+  const a = tr.querySelector("a[id*='_flag_']");
+  if (!a) return null;
+  const m = /PopupJobDetails\\('(\\d+)'/.exec(a.getAttribute('onclick') || '');
+  const st = tr.querySelector('a.share-toggle');
+  const tds = tr.querySelectorAll('td');
+  const metin = (sel) => { const e = tr.querySelector(sel); return e ? e.innerText : ''; };
+  return {
+    no: (st && st.getAttribute('data-ilanno')) || (m ? m[1] : ''),
+    baslik: a.innerText,
+    isveren: metin("span[id$='_ctlIsverenDL']"),
+    tur: metin("span[id$='_ctlIsverenTurDL']"),
+    yer: tds.length > 1 ? tds[1].innerText : '',
+    sag: tds.length ? tds[tds.length - 1].innerText : '',
+    sontarih: st ? st.getAttribute('data-sontarih') : '',
+    url: st ? st.getAttribute('data-url') : '',
+  };
+}).filter(x => x)
 """
 
 
@@ -40,7 +52,7 @@ PAGER = "#ctl04_ctlDataPagerDetay"
 
 def ilan_nolari(page):
     return page.evaluate(
-        "() => Array.from(document.querySelectorAll('a.share-toggle')).map(a => a.getAttribute('data-ilanno'))"
+        "() => Array.from(document.querySelectorAll(\"#ctl04_ctlGridAcikIslerListeDetail a[id*='_flag_']\")).map(a => a.id)"
     )
 
 
@@ -87,20 +99,21 @@ def calistir():
         ).new_page()
         sayfa.set_default_timeout(45000)
         try:
-            sayfa.goto(URL, wait_until="networkidle")
+            sayfa.goto(URL, wait_until="domcontentloaded")
+            sayfa.wait_for_timeout(3000)
             sayfa.get_by_text("Kamu", exact=True).click(force=True)
             sayfa.wait_for_timeout(3000)
             ara = sayfa.locator("#ctl04_ctlAcikIsPageCommand_CommandItem_Search")
             ara.click(force=True)
             try:
-                sayfa.wait_for_selector("a.share-toggle", timeout=40000)
+                sayfa.wait_for_selector(SATIR_LINK, timeout=40000)
             except PWTimeout:
                 # Tıklama tetiklemediyse sayfadaki postback'i doğrudan çalıştır
                 print("Tıklama sonuç getirmedi, postback doğrudan çağrılıyor...")
                 sayfa.evaluate(
                     "__doPostBack('ctl04$ctlAcikIsPageCommand$CommandItem_Search','')"
                 )
-                sayfa.wait_for_selector("a.share-toggle", timeout=60000)
+                sayfa.wait_for_selector(SATIR_LINK, timeout=60000)
 
             for no in range(1, MAX_SAYFA + 1):
                 satirlar = sayfa.evaluate(JS_TOPLA)
@@ -110,18 +123,18 @@ def calistir():
                     if not ilan_no or ilan_no in ilanlar:
                         continue
                     yeni += 1
-                    meslek = temizle(s["meslek"]) or "Kamu İşçisi Alımı"
-                    il = temizle(s["il"]) or "Türkiye Geneli"
+                    yer = temizle(s["yer"])
+                    calisma_yeri = yer.split("Çalışma Yeri:")[-1] if "Çalışma Yeri:" in yer else yer
                     ilanlar[ilan_no] = {
                         "kaynak_sistem": KAYNAK,
                         "orijinal_ilan_id": ilan_no,
-                        "baslik": meslek,
-                        "kurum_adi": temizle(s["tur"]) or "İŞKUR (Kamu)",
+                        "baslik": temizle(s["baslik"]) or "Kamu İşçisi Alımı",
+                        "kurum_adi": temizle(s["isveren"]) or temizle(s["tur"]) or "İŞKUR (Kamu)",
                         "ilan_turu": "Kamu İşçisi",
-                        "sehir": il,
+                        "sehir": ortak.sehir_bul(calisma_yeri),
                         "mezuniyet_sarti": None,
                         "kpss_turu": None,
-                        "son_basvuru_tarihi": ortak.tarih_cevir(s["sontarih"]),
+                        "son_basvuru_tarihi": ortak.tarih_cevir(s["sontarih"]) or ortak.tarih_cevir(s["sag"]),
                         "basvuru_linki": (s["url"] or "").strip() or URL,
                         "detay_islendi": True,
                     }

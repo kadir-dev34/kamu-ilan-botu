@@ -1,0 +1,15 @@
+{
+  "_aciklama": "Haber kaynakları. 'rss' listesine kamu kurumlarının RSS adreslerini ekleyin (keşif çıktısına bakın). Kurum kaynakları yeterli olunca 'google_haber' değerini false yapın.",
+  "google_haber": true,
+  "google_sorgulari": [
+    "kamu personel alımı",
+    "KPSS alım ilanı",
+    "İŞKUR kamu işçi alımı",
+    "memur alımı",
+    "sözleşmeli personel alımı",
+    "akademik personel alımı"
+  ],
+  "rss": [
+    { "ad": "ÖRNEK KURUM (silin)", "url": "https://ornek.gov.tr/rss.xml", "filtre": true, "aktif": false }
+  ]
+}

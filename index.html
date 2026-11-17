@@ -106,8 +106,8 @@
 <script>
 'use strict';
 // ====== AYARLAR: yalnızca PUBLISHABLE (anon) anahtarı kullanın. Secret key ASLA buraya yazılmaz. ======
-const SUPABASE_URL = 'https://qgdpkjkdlicqltagcsgq.supabase.co';
-const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_APY9Yn4FsZL4IxGIR9ndzg_-1Xaz_-y';
+const SUPABASE_URL = 'https://PROJE_KODUNUZ.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_BURAYA_YAPISTIRIN';
 // ===============================================================================================
 const SAYFA_BOYUTU = 20;
 const TABLO = 'tum_kamu_ilanlari';
@@ -321,7 +321,71 @@ const HABER_RENKLERI = [
   ['#1e3a8a', '#3b82f6'], ['#134e4a', '#14b8a6'], ['#312e81', '#818cf8'],
   ['#7c2d12', '#fb923c'], ['#064e3b', '#34d399'], ['#4c1d95', '#a78bfa'],
 ];
-const HABER_SIMGELERI = ['🏛️', '📋', '🎓', '👷', '📝', '🏥'];
+// Habere konusuna göre özgün (kendi çizdiğimiz) simge seçilir. Kurum logoları/arma
+// kullanım izni gerektirdiğinden varsayılan olarak KULLANILMAZ. İzniniz olan bir
+// logoyu 'logos/' klasörüne koyup aşağıdaki listeye ekleyebilirsiniz, örn:
+//   { ara: /sayıştay/i, src: 'logos/sayistay.png' }
+const HABER_LOGOLARI = [];
+const SVG_ORT = 'width="100%" height="100%" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"';
+const SIMGELER = {
+  saglik: `<svg ${SVG_ORT}><rect x="9" y="3" width="6" height="18" rx="1.6"/><rect x="3" y="9" width="18" height="6" rx="1.6"/></svg>`,
+  egitim: `<svg ${SVG_ORT}><path d="M12 4 2 9l10 5 10-5-10-5Z"/><path d="M6 11.5v4.5c0 1.6 2.7 3 6 3s6-1.4 6-3v-4.5"/><path d="M22 9v6"/></svg>`,
+  guvenlik: `<svg ${SVG_ORT}><path d="M12 2.5 20 5.5V12c0 4.8-3.4 8.2-8 9.5C7.4 20.200 4 16.800 4 12V5.500l8-3Z"/><path d="m8.500 12 2.500 2.500 4.500-5"/></svg>`,
+  isci: `<svg ${SVG_ORT}><path d="M4 17h16"/><path d="M5.500 17a6.500 6.500 0 0 1 13 0"/><path d="M10 7.500h4V11h-4z"/><path d="M3 20h18"/></svg>`,
+  sinav: `<svg ${SVG_ORT}><rect x="5" y="3" width="14" height="18" rx="2"/><path d="m8.500 8.500 1.500 1.500 2.500-3"/><path d="M8.500 14h7M8.500 17.500h5"/></svg>`,
+  kamu: `<svg ${SVG_ORT}><path d="M2.500 9 12 3.500 21.500 9"/><path d="M4 9.500h16"/><path d="M6 11v7M10 11v7M14 11v7M18 11v7"/><path d="M3.500 20h17"/></svg>`,
+  ilan: `<svg ${SVG_ORT}><rect x="3" y="7.500" width="18" height="12" rx="2"/><path d="M9 7.500V6a1.500 1.500 0 0 1 1.500-1.500h3A1.500 1.500 0 0 1 15 6v1.500"/><path d="M3 13h18"/></svg>`,
+};
+const SIMGE_KURALLARI = [
+  ['saglik', /sağlık|hemşire|hekim|doktor|hastane|ebe\b|diş/],
+  ['egitim', /üniversite|akademik|öğretim|öğretmen|okul|eğitim|araştırma görevlisi|mebi/],
+  ['guvenlik', /polis|asker|jandarma|güvenlik|bekçi|subay|savunma|sahil|koruma/],
+  ['sinav', /kpss|sınav|ösym|atama|tercih|puan/],
+  ['isci', /işçi|iskur|işkur|belediye|temizlik|şoför|operatör|bakım|tekniker/],
+  ['kamu', /bakanlık|başkanlığı|müdürlüğü|memur|kamu|sayıştay|yargı|mahkeme|kurum/],
+];
+// Başlıkta geçen kurumu tanıyıp resmî logo yerine metin rozeti gösterir (logo/arma değildir).
+const KURUMLAR = [
+  [/sağlık bakanlığı/, 'SB', 'Sağlık Bakanlığı'],
+  [/milli eğitim|meb\b|maarif/, 'MEB', 'Milli Eğitim Bakanlığı'],
+  [/ösym/, 'ÖSYM', 'ÖSYM'],
+  [/iskur|işkur|türkiye iş kurumu/, 'İŞKUR', 'Türkiye İş Kurumu'],
+  [/içişleri/, 'İÇB', 'İçişleri Bakanlığı'],
+  [/adalet bakanlığı|hsk\b/, 'AB', 'Adalet Bakanlığı'],
+  [/milli savunma|msb\b/, 'MSB', 'Milli Savunma Bakanlığı'],
+  [/aile ve sosyal hizmetler/, 'ASHB', 'Aile ve Sosyal Hizmetler Bak.'],
+  [/çalışma ve sosyal güvenlik/, 'ÇSGB', 'Çalışma ve Sosyal Güvenlik Bak.'],
+  [/tarım ve orman/, 'TOB', 'Tarım ve Orman Bakanlığı'],
+  [/gençlik ve spor/, 'GSB', 'Gençlik ve Spor Bakanlığı'],
+  [/hazine ve maliye/, 'HMB', 'Hazine ve Maliye Bakanlığı'],
+  [/ticaret bakanlığı/, 'TB', 'Ticaret Bakanlığı'],
+  [/ulaştırma/, 'UAB', 'Ulaştırma ve Altyapı Bak.'],
+  [/sayıştay/, 'SAY', 'Sayıştay'],
+  [/\byök\b|yükseköğretim kurulu/, 'YÖK', 'Yükseköğretim Kurulu'],
+  [/diyanet/, 'DİB', 'Diyanet İşleri Başkanlığı'],
+  [/jandarma/, 'JGK', 'Jandarma Genel Komutanlığı'],
+  [/emniyet|egm\b|polis akademisi/, 'EGM', 'Emniyet Genel Müdürlüğü'],
+  [/\bsgk\b|sosyal güvenlik kurumu/, 'SGK', 'Sosyal Güvenlik Kurumu'],
+  [/tbmm|büyük millet meclisi/, 'TBMM', 'TBMM'],
+  [/devlet personel|\bdpb\b/, 'DPB', 'Devlet Personel Başkanlığı'],
+  [/cumhurbaşkanlığı/, 'CB', 'Cumhurbaşkanlığı'],
+];
+function kurumRozeti(baslik) {
+  const k = String(baslik || '').toLocaleLowerCase('tr');
+  const f = KURUMLAR.find(([re]) => re.test(k));
+  if (!f) return '';
+  return `<span class="absolute left-10 sm:left-14 top-4 sm:top-5 z-[1] flex items-center gap-2 rounded-full bg-white/15 backdrop-blur-sm border border-white/30 pl-1 pr-3 py-1 text-white">
+    <span class="grid place-items-center h-8 min-w-8 px-1.5 rounded-full bg-white text-slate-800 text-[11px] font-extrabold">${esc(f[1])}</span>
+    <span class="text-xs sm:text-sm font-semibold">${esc(f[2])}</span></span>`;
+}
+
+function haberSimgesi(baslik) {
+  const k = String(baslik || '').toLocaleLowerCase('tr');
+  const logo = HABER_LOGOLARI.find((l) => l.ara.test(k) && /^logos\/[\w.\-]+$/.test(l.src));
+  if (logo) return `<img src="${esc(logo.src)}" alt="" loading="lazy" class="h-24 sm:h-36 w-auto max-w-[40%] object-contain">`;
+  const kural = SIMGE_KURALLARI.find(([, re]) => re.test(k));
+  return SIMGELER[kural ? kural[0] : 'ilan'];
+}
 
 function haberKaydirici(veri) {
   const kayan = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -332,7 +396,8 @@ function haberKaydirici(veri) {
         data-i="${i}" role="group" aria-roledescription="slayt" aria-label="${i + 1} / ${veri.length}"
         ${i === 0 ? '' : 'tabindex="-1" aria-hidden="true"'}
         style="background: radial-gradient(circle at 85% 20%, ${c2}55, transparent 55%), linear-gradient(135deg, ${c1}, ${c2});">
-      <span class="absolute right-6 top-4 text-6xl sm:text-8xl opacity-30 select-none" aria-hidden="true">${HABER_SIMGELERI[i % HABER_SIMGELERI.length]}</span>
+      <span class="absolute right-5 sm:right-10 top-4 sm:top-6 h-24 w-24 sm:h-40 sm:w-40 text-white/40 flex items-start justify-end select-none" aria-hidden="true">${haberSimgesi(n.baslik)}</span>
+      ${kurumRozeti(n.baslik)}
       <span class="absolute left-0 right-0 bottom-9 sm:bottom-11 mx-10 sm:mx-14 bg-red-600 text-white px-4 py-3 sm:px-5 sm:py-4 font-extrabold uppercase leading-tight text-base sm:text-2xl shadow-lg" style="max-width: calc(100% - 5rem); display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden;">${esc(n.baslik)}</span>
       <span class="absolute left-0 bottom-0 mx-10 sm:mx-14 bg-black/80 text-white px-3 py-1.5 text-xs sm:text-sm">${esc(n.kaynak || 'Haber')} · ${esc(goreceliZaman(n.yayin_tarihi))}</span>
     </a>`;

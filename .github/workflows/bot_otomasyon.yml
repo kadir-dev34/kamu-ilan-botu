@@ -40,6 +40,13 @@ jobs:
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: python ilan_gov_tr_bot.py
 
+      - name: Haber botu
+        if: always()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python haber_bot.py
+
       - name: Hata kayıtlarını yükle
         if: failure()
         uses: actions/upload-artifact@v4

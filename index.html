@@ -39,6 +39,14 @@
     <button id="iosKapat" class="ml-2 underline">Kapat</button>
   </div>
 
+  <section id="haberBolumu" class="hidden mb-6" aria-labelledby="haberBaslik">
+    <div class="flex items-baseline justify-between mb-2">
+      <h2 id="haberBaslik" class="font-bold text-lg">📰 Kamu İlanlarıyla İlgili Haberler</h2>
+      <span class="text-xs text-slate-500 dark:text-slate-400">Başlıklar yayıncıların sitesine yönlendirir</span>
+    </div>
+    <div id="haberListe" class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"></div>
+  </section>
+
   <section class="bg-white dark:bg-slate-800 rounded-xl shadow p-4 mb-6">
     <div class="grid gap-3 md:grid-cols-6">
       <input id="arama" type="search" placeholder="Ara: kurum, pozisyon, şehir..." class="md:col-span-2 border rounded-lg px-3 py-2 bg-transparent" autocomplete="off">
@@ -98,8 +106,8 @@
 <script>
 'use strict';
 // ====== AYARLAR: yalnızca PUBLISHABLE (anon) anahtarı kullanın. Secret key ASLA buraya yazılmaz. ======
-const SUPABASE_URL = 'https://qgdpkjkdlicqltagcsgq.supabase.co';
-const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_APY9Yn4FsZL4IxGIR9ndzg_-1Xaz_-y';
+const SUPABASE_URL = 'https://PROJE_KODUNUZ.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_BURAYA_YAPISTIRIN';
 // ===============================================================================================
 const SAYFA_BOYUTU = 20;
 const TABLO = 'tum_kamu_ilanlari';
@@ -300,7 +308,30 @@ const ios = /iphone|ipad|ipod/i.test(navigator.userAgent) && !window.navigator.s
 if (ios && !depo.oku('iosKapali', false)) $('iosIpucu').classList.remove('hidden');
 $('iosKapat').onclick = () => { $('iosIpucu').classList.add('hidden'); depo.yaz('iosKapali', true); };
 
+// ---- Haberler ----
+function goreceliZaman(iso) {
+  const dk = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (!isFinite(dk) || dk < 0) return '';
+  if (dk < 60) return `${Math.max(dk, 1)} dk önce`;
+  if (dk < 1440) return `${Math.floor(dk / 60)} saat önce`;
+  const g = Math.floor(dk / 1440);
+  return g === 1 ? 'dün' : `${g} gün önce`;
+}
+async function haberleriYukle() {
+  const { data, error } = await db.from('haberler').select('id,baslik,kaynak,link,yayin_tarihi')
+    .order('yayin_tarihi', { ascending: false }).limit(6);
+  if (error || !data || !data.length) return; // bölüm gizli kalır
+  $('haberListe').innerHTML = data.map((n) => `
+    <a href="${esc(guvenliLink(n.link))}" target="_blank" rel="noopener noreferrer"
+       class="block bg-white dark:bg-slate-800 rounded-xl shadow p-4 hover:ring-2 hover:ring-blue-500">
+      <h3 class="font-semibold leading-snug text-sm">${esc(n.baslik)}</h3>
+      <p class="text-xs text-slate-500 dark:text-slate-400 mt-2">${esc(n.kaynak || 'Haber')} · ${esc(goreceliZaman(n.yayin_tarihi))}</p>
+    </a>`).join('');
+  $('haberBolumu').classList.remove('hidden');
+}
+
 yukle();
+haberleriYukle();
 </script>
 </body>
 </html>

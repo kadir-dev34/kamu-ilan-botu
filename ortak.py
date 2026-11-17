@@ -121,6 +121,23 @@ def gorulenleri_isaretle(db, kaynak, idler, zaman, parca=100):
         )
 
 
+def liste_alanlarini_guncelle(db, kayitlar, parca=200):
+    """Var olan ilanların yalnızca verilen sütunlarını günceller (detaydan gelen
+    mezuniyet/KPSS/tarih gibi alanlara dokunmaz). Aynı anahtar kümesine sahip
+    kayıtlar birlikte gönderilir."""
+    gruplar = {}
+    for k in kayitlar:
+        gruplar.setdefault(tuple(sorted(k)), []).append(k)
+    toplam = 0
+    for grup in gruplar.values():
+        for i in range(0, len(grup), parca):
+            db.table(TABLO).upsert(
+                grup[i : i + parca], on_conflict="kaynak_sistem,orijinal_ilan_id"
+            ).execute()
+            toplam += len(grup[i : i + parca])
+    return toplam
+
+
 def pasife_al(db, kaynak, zaman, gorulen_sayisi, minimum):
     """Bu taramada görülmeyen ilanları pasife alır. Tarama yarım kaldıysa
     (çok az ilan geldiyse) hiçbir şeyi pasife ALMAZ."""
@@ -159,6 +176,25 @@ def debug_kaydet(page, ad):
 def tr_lower(s):
     """Türkçe'ye uygun küçük harfe çevirme (İ->i, I->ı)."""
     return (s or "").replace("İ", "i").replace("I", "ı").lower()
+
+
+def tr_title(s):
+    """'İZMİR KATİP ÇELEBİ ÜNİVERSİTESİ' -> 'İzmir Katip Çelebi Üniversitesi'.
+    Karışık yazılmış metne dokunmaz (zaten büyük/küçük harf karışıksa)."""
+    s = " ".join((s or "").split())
+    if not s or s != s.upper():
+        return s
+    kucuk_baglac = {"ve", "ile", "de", "da"}
+    sonuc = []
+    for i, w in enumerate(s.split(" ")):
+        k = tr_lower(w)
+        if i and k in kucuk_baglac:
+            sonuc.append(k)
+        elif "." in w and len(w) <= 5:  # T.C., Ş.U. gibi kısaltmalar
+            sonuc.append(w)
+        else:
+            sonuc.append(k[:1].replace("i", "İ").replace("ı", "I").upper() + k[1:])
+    return " ".join(sonuc)
 
 
 def satirlar(metin):

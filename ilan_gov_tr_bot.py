@@ -1,9 +1,14 @@
 """ilan.gov.tr kamu ilanları botu (Kamu Personeli, Akademik, Askeri).
 
-Akış: kategori listesi (currentPage=N) -> ilan bağlantıları -> yeni ilanların
-detay sayfası -> şehir/kurum/KPSS/mezuniyet/son başvuru çıkarımı -> Supabase.
-Detay metni değişmeyeceği için daha önce işlenmiş ilanlar tekrar açılmaz,
-sadece "görüldü" olarak işaretlenir.
+Akış:
+ 1. Kategori listesi (currentPage=N): her satırda kurum, başlık, ilan no ve şehir
+    doğrudan listeden okunur.
+ 2. Yeni ilanların detay sayfası açılıp son başvuru tarihi, mezuniyet ve KPSS
+    çıkarılır (akademik ilanlarda mezuniyet/KPSS yazılmaz).
+ 3. Zaten işlenmiş ilanların liste alanları (kurum, şehir, başlık) güncellenir,
+    detaydan gelen alanlara dokunulmaz.
+ 4. Bu taramada görülmeyen ilanlar pasife alınır.
+"Düzeltme ve İptal İlanı" başlıklı duyurular listelenmez.
 """
 
 import re
@@ -24,41 +29,63 @@ MAX_SAYFA = 40
 MAX_DETAY_PER_RUN = 400
 MIN_ILAN_PASIF_ICIN = 30
 ILAN_YOLU = re.compile(r"^/ilan/(\d+)(?:/|$)")
+SATIR_SEC = "a[href^='/ilan/'] .search-results-row"
 
-JS_LINKLER = """
-() => Array.from(document.querySelectorAll('a[href]')).map(a => ({
-  href: a.getAttribute('href'),
-  text: (a.innerText || '').trim()
-}))
+JS_SATIRLAR = """
+() => Array.from(document.querySelectorAll("a[href^='/ilan/']")).map(a => {
+  const row = a.querySelector('.search-results-row');
+  if (!row) return null;
+  const t = (e) => (e ? (e.innerText || '').trim() : '');
+  const cols = Array.from(row.children).filter(c => c.classList.contains('col'));
+  return { href: a.getAttribute('href'), title: a.getAttribute('title') || '', cols: cols.map(t) };
+}).filter(x => x)
 """
 
 
+def temizle(s):
+    return " ".join((s or "").split())
+
+
+def sehir_cevir(metin):
+    """Liste hücresindeki şehir metnini normalleştirir."""
+    metin = temizle(metin)
+    if not metin:
+        return None
+    s = ortak.sehir_bul(metin)
+    if s != "Türkiye Geneli":
+        return s
+    return ortak.tr_title(metin) if len(metin) <= 40 else "Türkiye Geneli"
+
+
 def liste_oku(sayfa, ad, url):
-    """Bir kategorinin tüm sayfalarını gezip {id: (baslik, link)} döndürür."""
+    """Bir kategorinin tüm sayfalarını gezip {id: bilgi} döndürür."""
     sonuc = {}
     for no in range(1, MAX_SAYFA + 1):
         sayfa.goto(f"{url}?currentPage={no}", wait_until="domcontentloaded")
         try:
-            sayfa.wait_for_selector("a[href^='/ilan/']", timeout=20000)
+            sayfa.wait_for_selector(SATIR_SEC, timeout=20000)
         except Exception:  # noqa: BLE001
             break
         sayfa.wait_for_timeout(800)
         yeni = 0
-        for a in sayfa.evaluate(JS_LINKLER):
-            href = (a["href"] or "").split("?")[0].split("#")[0]
+        for r in sayfa.evaluate(JS_SATIRLAR):
+            href = (r["href"] or "").split("?")[0].split("#")[0]
             m = ILAN_YOLU.match(href)
-            if not m:
+            if not m or m.group(1) in sonuc:
                 continue
-            ilan_id = m.group(1)
-            satirlar = ortak.satirlar(a["text"])
-            if ilan_id in sonuc:
+            c = [temizle(x) for x in r["cols"]]
+            baslik = c[1] if len(c) > 1 and c[1] else temizle(r["title"])
+            if len(baslik) < 5:
                 continue
-            baslik = satirlar[0] if satirlar else ""
-            if len(baslik) < 8:
-                continue
-            sonuc[ilan_id] = {"baslik": baslik, "link": BASE + href, "tur": ad}
+            sonuc[m.group(1)] = {
+                "baslik": baslik,
+                "kurum": ortak.tr_title(c[0]) if c and c[0] else None,
+                "sehir": sehir_cevir(c[3]) if len(c) > 3 else None,
+                "link": BASE + href,
+                "tur": ad,
+            }
             yeni += 1
-        print(f"  {ad} sayfa {no}: {yeni} yeni bağlantı")
+        print(f"  {ad} sayfa {no}: {yeni} yeni satır")
         if yeni == 0:
             break
     return sonuc
@@ -95,6 +122,13 @@ def calistir():
             tarayici.close()
             sys.exit(1)
 
+        # İptal/düzeltme duyurularını ayıkla
+        iptal = [i for i, o in toplanan.items() if "iptal" in ortak.tr_lower(o["baslik"])]
+        for i in iptal:
+            del toplanan[i]
+        if iptal:
+            print(f"{len(iptal)} iptal/düzeltme duyurusu atlandı.")
+
         if not toplanan:
             print("HATA: Hiç ilan bulunamadı (site yapısı değişmiş olabilir).")
             ortak.debug_kaydet(sayfa, "ilan_gov_bos")
@@ -103,18 +137,34 @@ def calistir():
 
         print(f"Toplam {len(toplanan)} ilan bulundu; {len(mevcut)} tanesi kayıtlı.")
 
-        yeni_kayitlar, tekrar_gorulen, detay_sayac = [], [], 0
+        yeni_kayitlar, guncellenecek, detay_sayac = [], [], 0
         for ilan_id, o in toplanan.items():
-            if mevcut.get(ilan_id):
-                tekrar_gorulen.append(ilan_id)
+            akademik = o["tur"] == "Akademik Personel"
+            if mevcut.get(ilan_id):  # detayı daha önce işlenmiş: yalnız liste alanları
+                g = {
+                    "kaynak_sistem": KAYNAK,
+                    "orijinal_ilan_id": ilan_id,
+                    "baslik": o["baslik"],
+                    "kurum_adi": o["kurum"],
+                    "ilan_turu": o["tur"],
+                    "sehir": o["sehir"] or "Türkiye Geneli",
+                    "basvuru_linki": o["link"],
+                    "aktif_mi": True,
+                    "son_gorulme": baslangic,
+                }
+                if akademik:
+                    g["mezuniyet_sarti"] = None
+                    g["kpss_turu"] = None
+                guncellenecek.append(g)
                 continue
+
             kayit = {
                 "kaynak_sistem": KAYNAK,
                 "orijinal_ilan_id": ilan_id,
                 "baslik": o["baslik"],
-                "kurum_adi": ortak.kurum_bul(ortak.satirlar(o["baslik"])) or None,
+                "kurum_adi": o["kurum"],
                 "ilan_turu": o["tur"],
-                "sehir": "Türkiye Geneli",
+                "sehir": o["sehir"] or "Türkiye Geneli",
                 "mezuniyet_sarti": None,
                 "kpss_turu": None,
                 "son_basvuru_tarihi": None,
@@ -126,12 +176,14 @@ def calistir():
                 try:
                     metin = detay_oku(sayfa, o["link"])
                     if metin:
-                        satirlar = ortak.satirlar(metin)
-                        kayit["kurum_adi"] = ortak.kurum_bul(satirlar) or kayit["kurum_adi"]
-                        kayit["sehir"] = ortak.sehir_bul(metin[:6000])
-                        kayit["mezuniyet_sarti"] = ortak.mezuniyet_bul(metin)
-                        kayit["kpss_turu"] = ortak.kpss_bul(metin)
                         kayit["son_basvuru_tarihi"] = ortak.son_basvuru_bul(metin)
+                        if not akademik:
+                            kayit["mezuniyet_sarti"] = ortak.mezuniyet_bul(metin)
+                            kayit["kpss_turu"] = ortak.kpss_bul(metin)
+                        if not o["sehir"]:
+                            kayit["sehir"] = ortak.sehir_bul(metin[:6000])
+                        if not o["kurum"]:
+                            kayit["kurum_adi"] = ortak.kurum_bul(ortak.satirlar(metin))
                         kayit["detay_islendi"] = True
                 except Exception as e:  # noqa: BLE001
                     print(f"  Detay alınamadı ({ilan_id}): {e}")
@@ -142,10 +194,10 @@ def calistir():
 
     if yeni_kayitlar:
         n = ortak.kayitlari_yaz(db, yeni_kayitlar, baslangic)
-        print(f"{n} yeni/güncellenen ilan yazıldı.")
-    if tekrar_gorulen:
-        ortak.gorulenleri_isaretle(db, KAYNAK, tekrar_gorulen, baslangic)
-        print(f"{len(tekrar_gorulen)} mevcut ilan 'görüldü' işaretlendi.")
+        print(f"{n} yeni ilan yazıldı.")
+    if guncellenecek:
+        n = ortak.liste_alanlarini_guncelle(db, guncellenecek)
+        print(f"{n} mevcut ilanın kurum/şehir/başlık alanı güncellendi.")
 
     ortak.pasife_al(db, KAYNAK, baslangic, len(toplanan), MIN_ILAN_PASIF_ICIN)
 

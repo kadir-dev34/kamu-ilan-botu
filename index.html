@@ -39,12 +39,12 @@
     <button id="iosKapat" class="ml-2 underline">Kapat</button>
   </div>
 
-  <section id="haberBolumu" class="hidden mb-6" aria-labelledby="haberBaslik">
+  <section id="haberBolumu" class="hidden mb-6" aria-roledescription="carousel" aria-label="Kamu ilanlarıyla ilgili haberler">
     <div class="flex items-baseline justify-between mb-2">
-      <h2 id="haberBaslik" class="font-bold text-lg">📰 Kamu İlanlarıyla İlgili Haberler</h2>
+      <h2 class="font-bold text-lg">📰 Kamu İlanlarıyla İlgili Haberler</h2>
       <span class="text-xs text-slate-500 dark:text-slate-400">Başlıklar yayıncıların sitesine yönlendirir</span>
     </div>
-    <div id="haberListe" class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"></div>
+    <div id="haberListe"></div>
   </section>
 
   <section class="bg-white dark:bg-slate-800 rounded-xl shadow p-4 mb-6">
@@ -317,16 +317,82 @@ function goreceliZaman(iso) {
   const g = Math.floor(dk / 1440);
   return g === 1 ? 'dün' : `${g} gün önce`;
 }
+const HABER_RENKLERI = [
+  ['#1e3a8a', '#3b82f6'], ['#134e4a', '#14b8a6'], ['#312e81', '#818cf8'],
+  ['#7c2d12', '#fb923c'], ['#064e3b', '#34d399'], ['#4c1d95', '#a78bfa'],
+];
+const HABER_SIMGELERI = ['🏛️', '📋', '🎓', '👷', '📝', '🏥'];
+
+function haberKaydirici(veri) {
+  const kayan = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const slaytlar = veri.map((n, i) => {
+    const [c1, c2] = HABER_RENKLERI[i % HABER_RENKLERI.length];
+    return `<a href="${esc(guvenliLink(n.link))}" target="_blank" rel="noopener noreferrer"
+        class="haber-slayt absolute inset-0 block transition-opacity duration-500 ${i === 0 ? 'opacity-100' : 'opacity-0 pointer-events-none'}"
+        data-i="${i}" role="group" aria-roledescription="slayt" aria-label="${i + 1} / ${veri.length}"
+        ${i === 0 ? '' : 'tabindex="-1" aria-hidden="true"'}
+        style="background: radial-gradient(circle at 85% 20%, ${c2}55, transparent 55%), linear-gradient(135deg, ${c1}, ${c2});">
+      <span class="absolute right-6 top-4 text-6xl sm:text-8xl opacity-30 select-none" aria-hidden="true">${HABER_SIMGELERI[i % HABER_SIMGELERI.length]}</span>
+      <span class="absolute left-0 right-0 bottom-9 sm:bottom-11 mx-10 sm:mx-14 bg-red-600 text-white px-4 py-3 sm:px-5 sm:py-4 font-extrabold uppercase leading-tight text-base sm:text-2xl shadow-lg" style="max-width: calc(100% - 5rem); display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden;">${esc(n.baslik)}</span>
+      <span class="absolute left-0 bottom-0 mx-10 sm:mx-14 bg-black/80 text-white px-3 py-1.5 text-xs sm:text-sm">${esc(n.kaynak || 'Haber')} · ${esc(goreceliZaman(n.yayin_tarihi))}</span>
+    </a>`;
+  }).join('');
+  const noktalar = veri.map((_, i) =>
+    `<button type="button" data-git="${i}" aria-label="${i + 1}. habere git"
+       class="h-9 w-9 rounded-full text-sm font-semibold transition ${i === 0 ? 'bg-green-700 text-white' : 'bg-slate-200 text-slate-700 hover:bg-slate-300 dark:bg-slate-700 dark:text-slate-200'}">${i + 1}</button>`).join('');
+  $('haberListe').innerHTML = `
+    <div id="hSahne" class="relative overflow-hidden rounded-xl shadow bg-slate-800 h-60 sm:h-80">
+      ${slaytlar}
+      <button type="button" id="hOnce" aria-label="Önceki haber" class="absolute left-2 top-1/2 -translate-y-1/2 z-10 h-10 w-10 rounded-full bg-black/40 hover:bg-black/60 text-white text-2xl leading-none">‹</button>
+      <button type="button" id="hSonra" aria-label="Sonraki haber" class="absolute right-2 top-1/2 -translate-y-1/2 z-10 h-10 w-10 rounded-full bg-black/40 hover:bg-black/60 text-white text-2xl leading-none">›</button>
+    </div>
+    <div id="hNokta" class="flex flex-wrap justify-center gap-2 mt-3">${noktalar}</div>`;
+
+  let su = 0, durdur = false, zaman = null;
+  const sahne = $('hSahne');
+  const slaytEl = [...sahne.querySelectorAll('.haber-slayt')];
+  const noktaEl = [...$('hNokta').querySelectorAll('button')];
+  function git(i) {
+    su = (i + veri.length) % veri.length;
+    slaytEl.forEach((s, k) => {
+      const acik = k === su;
+      s.classList.toggle('opacity-100', acik);
+      s.classList.toggle('opacity-0', !acik);
+      s.classList.toggle('pointer-events-none', !acik);
+      s.setAttribute('aria-hidden', acik ? 'false' : 'true');
+      s.tabIndex = acik ? 0 : -1;
+    });
+    noktaEl.forEach((d, k) => {
+      const acik = k === su;
+      d.classList.toggle('bg-green-700', acik); d.classList.toggle('text-white', acik);
+      d.classList.toggle('bg-slate-200', !acik); d.classList.toggle('text-slate-700', !acik);
+      d.setAttribute('aria-current', acik ? 'true' : 'false');
+    });
+  }
+  $('hOnce').onclick = () => git(su - 1);
+  $('hSonra').onclick = () => git(su + 1);
+  $('hNokta').onclick = (e) => { const b = e.target.closest('[data-git]'); if (b) git(Number(b.dataset.git)); };
+  sahne.addEventListener('mouseenter', () => (durdur = true));
+  sahne.addEventListener('mouseleave', () => (durdur = false));
+  sahne.addEventListener('focusin', () => (durdur = true));
+  sahne.addEventListener('focusout', () => (durdur = false));
+  let x0 = null;
+  sahne.addEventListener('touchstart', (e) => { x0 = e.touches[0].clientX; durdur = true; }, { passive: true });
+  sahne.addEventListener('touchend', (e) => {
+    if (x0 !== null) { const dx = e.changedTouches[0].clientX - x0; if (Math.abs(dx) > 40) git(su + (dx < 0 ? 1 : -1)); }
+    x0 = null; durdur = false;
+  });
+  if (kayan && veri.length > 1) {
+    zaman = setInterval(() => { if (!durdur && !document.hidden) git(su + 1); }, 6000);
+  }
+  if (veri.length < 2) { $('hOnce').classList.add('hidden'); $('hSonra').classList.add('hidden'); $('hNokta').classList.add('hidden'); }
+}
+
 async function haberleriYukle() {
   const { data, error } = await db.from('haberler').select('id,baslik,kaynak,link,yayin_tarihi')
-    .order('yayin_tarihi', { ascending: false }).limit(6);
+    .order('yayin_tarihi', { ascending: false }).limit(10);
   if (error || !data || !data.length) return; // bölüm gizli kalır
-  $('haberListe').innerHTML = data.map((n) => `
-    <a href="${esc(guvenliLink(n.link))}" target="_blank" rel="noopener noreferrer"
-       class="block bg-white dark:bg-slate-800 rounded-xl shadow p-4 hover:ring-2 hover:ring-blue-500">
-      <h3 class="font-semibold leading-snug text-sm">${esc(n.baslik)}</h3>
-      <p class="text-xs text-slate-500 dark:text-slate-400 mt-2">${esc(n.kaynak || 'Haber')} · ${esc(goreceliZaman(n.yayin_tarihi))}</p>
-    </a>`).join('');
+  haberKaydirici(data);
   $('haberBolumu').classList.remove('hidden');
 }
 
